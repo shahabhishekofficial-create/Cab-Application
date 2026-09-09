@@ -33,12 +33,8 @@ export function calculateReconciliation(input: {
   const systemTripCount = input.trips.length;
   const systemIncome = input.trips.reduce((sum, trip) => sum + trip.grossFare, 0);
   const runningKm = input.closeOdometer - input.startOdometer;
-  const completedTripKm = input.trips
-    .filter((trip) => trip.status === 'COMPLETED')
-    .reduce((sum, trip) => sum + tripKm(trip), 0);
-  const cancelledNoShowKm = input.trips
-    .filter((trip) => trip.status !== 'COMPLETED')
-    .reduce((sum, trip) => sum + tripKm(trip), 0);
+  const completedTripKm = input.trips.filter((trip) => trip.status === 'COMPLETED').reduce((sum, trip) => sum + tripKm(trip), 0);
+  const cancelledNoShowKm = input.trips.filter((trip) => trip.status !== 'COMPLETED').reduce((sum, trip) => sum + tripKm(trip), 0);
   const unallocatedKm = runningKm - completedTripKm - cancelledNoShowKm;
   const tripCountDifference = input.reportedTripCount - systemTripCount;
   const incomeDifference = input.reportedIncome - systemIncome;
@@ -47,15 +43,5 @@ export function calculateReconciliation(input: {
   if (runningKm < 0 || unallocatedKm < 0) status = 'CRITICAL';
   else if (tripCountDifference !== 0 || Math.abs(incomeDifference) >= 1) status = 'REVIEW';
 
-  return {
-    systemTripCount,
-    systemIncome,
-    tripCountDifference,
-    incomeDifference,
-    runningKm,
-    completedTripKm,
-    cancelledNoShowKm,
-    unallocatedKm,
-    status,
-  };
+  return { systemTripCount, systemIncome, tripCountDifference, incomeDifference, runningKm, completedTripKm, cancelledNoShowKm, unallocatedKm, status };
 }
