@@ -44,8 +44,8 @@ export function calculateReconciliation(input: {
   const incomeDifference = input.reportedIncome - systemIncome;
 
   let status: ReconciliationStatus = 'PASS';
-  if (unallocatedKm < 0) status = 'CRITICAL';
-  else if (tripCountDifference !== 0 || Math.abs(incomeDifference) >= 1 || Math.abs(runningKm) < 0) status = 'REVIEW';
+  if (runningKm < 0 || unallocatedKm < 0) status = 'CRITICAL';
+  else if (tripCountDifference !== 0 || Math.abs(incomeDifference) >= 1) status = 'REVIEW';
 
   return {
     systemTripCount,
