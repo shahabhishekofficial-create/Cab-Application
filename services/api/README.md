@@ -1,12 +1,10 @@
 # Cab Application API
 
-TypeScript/Fastify backend foundation for the cab operations system.
+Backend service for the cab operations platform.
 
-## Local development
+## Current endpoints
 
-```bash
-npm install
-npm run dev
-```
+- `GET /health` — service health check
+- `POST /v1/sync/validate` — validates the mobile transaction envelope
 
-Health check: `GET /health`
+The API is intentionally small at this stage; domain endpoints will be added behind server-side validation and Supabase persistence.
