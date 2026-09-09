@@ -1,33 +1,24 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
+import Fastify from 'fastify';
 import { z } from 'zod';
 
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+const app = Fastify({ logger: true });
 
-const port = Number(process.env.PORT ?? 3000);
+app.get('/health', async () => ({ status: 'ok', service: 'cab-api' }));
 
 const transactionSchema = z.object({
   clientTransactionId: z.string().uuid(),
-  sessionId: z.string().uuid().optional(),
+  vehicleId: z.string().uuid(),
+  sessionId: z.string().uuid(),
 });
 
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'cab-operations-api', version: '0.1.0' });
+app.post('/v1/sync/validate', async (request, reply) => {
+  const parsed = transactionSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.issues });
+  return { accepted: true, clientTransactionId: parsed.data.clientTransactionId };
 });
 
-app.post('/api/sync/validate', (req, res) => {
-  const parsed = transactionSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ ok: false, error: 'INVALID_TRANSACTION', details: parsed.error.flatten() });
-  }
-  return res.json({ ok: true, accepted: true, clientTransactionId: parsed.data.clientTransactionId });
-});
-
-app.use((_req, res) => res.status(404).json({ ok: false, error: 'NOT_FOUND' }));
-
-app.listen(port, () => {
-  console.log(`Cab Operations API listening on :${port}`);
+const port = Number(process.env.PORT ?? 3000);
+app.listen({ port, host: '0.0.0.0' }).catch((error) => {
+  app.log.error(error);
+  process.exit(1);
 });
