@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '../db/supabase.js';
+import { authErrorResponse, requireDriver } from '../auth/driver-auth.js';
 
 const metadataSchema = z.object({
   fileId: z.string().uuid(),
@@ -15,6 +16,14 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
   app.addContentTypeParser('image/png', { parseAs: 'buffer' }, (_request, body, done) => done(null, body));
 
   app.post('/v1/files', async (request, reply) => {
+    try {
+      await requireDriver(request);
+    } catch (error) {
+      const response = authErrorResponse(error);
+      if (response) return reply.code(response.status).send(response.body);
+      throw error;
+    }
+
     const parsed = metadataSchema.safeParse({
       fileId: request.headers['x-file-id'],
       objectPath: request.headers['x-object-path'],
