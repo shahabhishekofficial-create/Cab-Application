@@ -32,6 +32,7 @@ fun DriverApp() {
     val localRepository = remember { SessionLocalRepository(context) }
     var currentSession by remember { mutableStateOf(sessionState.current()) }
     var pendingCount by remember { mutableStateOf(0) }
+    var exhaustedCount by remember { mutableStateOf(0) }
     var screen by remember { mutableStateOf("LOADING") }
     var entryType by remember { mutableStateOf("TRIP") }
     var status by remember { mutableStateOf("") }
@@ -41,7 +42,9 @@ fun DriverApp() {
 
     fun refreshPending() {
         scope.launch {
-            pendingCount = runCatching { CabDatabase.get(context).pendingTransactionDao().pendingCount() }.getOrDefault(0)
+            val dao = CabDatabase.get(context).pendingTransactionDao()
+            pendingCount = runCatching { dao.pendingCount() }.getOrDefault(0)
+            exhaustedCount = runCatching { dao.exhaustedCount() }.getOrDefault(0)
         }
     }
 
@@ -69,8 +72,6 @@ fun DriverApp() {
             return true
         }
 
-        // A cached assignment is enough to keep the app usable offline. Never erase
-        // credentials or local session state merely because the server is unreachable.
         if (identity.driverId != null && identity.vehicleId != null) {
             restoreLocalSessionIfValid()
             status = "Offline mode • server unavailable; local entries remain safe"
@@ -118,7 +119,15 @@ fun DriverApp() {
                 if (identity.driverId == null || identity.vehicleId == null) Text("No active vehicle assignment. Contact admin.") else {
                     if (displayName.isNotBlank()) Text(displayName)
                     if (registration.isNotBlank()) Text("Vehicle: $registration")
-                    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("SESSION", style = MaterialTheme.typography.labelLarge); Text(if (currentSession != null) "OPEN" else "NOT STARTED", style = MaterialTheme.typography.titleLarge); currentSession?.let { Text("Session: ${it.sessionId}") }; Text("Pending sync: $pendingCount") } }
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("SESSION", style = MaterialTheme.typography.labelLarge)
+                            Text(if (currentSession != null) "OPEN" else "NOT STARTED", style = MaterialTheme.typography.titleLarge)
+                            currentSession?.let { Text("Session: ${it.sessionId}") }
+                            Text("Pending sync: $pendingCount")
+                            if (exhaustedCount > 0) Text("Sync attention required: $exhaustedCount")
+                        }
+                    }
                     if (currentSession == null) Button({ screen = "START" }, Modifier.fillMaxWidth()) { Text("START SESSION") } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { Button({ entryType = "TRIP"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("ADD TRIP") }; Button({ entryType = "FUEL"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("FUEL") } }
                         OutlinedButton({ entryType = "EXPENSE"; screen = "ENTRY" }, Modifier.fillMaxWidth()) { Text("EXPENSE") }
