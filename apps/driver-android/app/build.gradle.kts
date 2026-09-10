@@ -7,6 +7,10 @@ plugins {
     id("androidx.room")
 }
 
+room {
+    schemaDirectory("$projectDir/schemas")
+}
+
 android {
     namespace = "com.caboperations.driver"
     compileSdk = 35
