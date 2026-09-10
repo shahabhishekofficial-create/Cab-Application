@@ -1,6 +1,7 @@
 package com.caboperations.driver.auth
 
 import android.content.Context
+import android.net.Uri
 import android.util.Base64
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -13,6 +14,7 @@ import kotlinx.serialization.json.longOrNull
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -31,6 +33,36 @@ class AuthRepository(private val context: Context) {
         "/auth/v1/token?grant_type=password", "{\"email\":${Json.encodeToString(email)},\"password\":${Json.encodeToString(password)}}"
     ).onSuccess { save(it) }
 
+    fun googleAuthorizeUrl(): Result<String> = runCatching {
+        require(BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_ANON_KEY.isNotBlank()) { "SUPABASE_NOT_CONFIGURED" }
+        val state = randomState()
+        prefs.edit().putString("oauth_state", state).apply()
+        val redirect = "cabdriver://auth-callback"
+        val encodedRedirect = java.net.URLEncoder.encode(redirect, StandardCharsets.UTF_8.name())
+        val encodedState = java.net.URLEncoder.encode(state, StandardCharsets.UTF_8.name())
+        "${BuildConfig.SUPABASE_URL.trimEnd('/')}/auth/v1/authorize?provider=google&redirect_to=$encodedRedirect&state=$encodedState"
+    }
+
+    fun consumeGoogleCallback(uri: Uri): Result<AuthSession> = runCatching {
+        require(uri.scheme == "cabdriver" && uri.host == "auth-callback") { "INVALID_AUTH_CALLBACK" }
+        val expectedState = prefs.getString("oauth_state", null)
+        val actualState = uri.getQueryParameter("state")
+        require(!expectedState.isNullOrBlank() && expectedState == actualState) { "INVALID_AUTH_STATE" }
+
+        val fragment = uri.fragment ?: error("AUTH_CALLBACK_MISSING_TOKEN")
+        val params = fragment.split('&').mapNotNull { part ->
+            val index = part.indexOf('=')
+            if (index <= 0) null else Uri.decode(part.substring(0, index)) to Uri.decode(part.substring(index + 1))
+        }.toMap()
+        val access = params["access_token"] ?: error("AUTH_TOKEN_MISSING")
+        val refresh = params["refresh_token"].orEmpty()
+        val expires = params["expires_in"]?.toLongOrNull()?.let { System.currentTimeMillis() + it * 1000L }
+        val value = AuthSession(access, refresh, expires)
+        prefs.edit().remove("oauth_state").apply()
+        save(value)
+        value
+    }
+
     fun refreshIfNeeded(force: Boolean = false): Result<AuthSession?> {
         val current = session() ?: return Result.success(null)
         val expiresAt = current.expiresAt ?: return if (force) refresh(current) else Result.success(current)
@@ -43,7 +75,7 @@ class AuthRepository(private val context: Context) {
     ).map { it.copy(refreshToken = it.refreshToken.ifBlank { current.refreshToken }) }
         .onSuccess { save(it) }
 
-    fun logout() { prefs.edit().remove("session").apply() }
+    fun logout() { prefs.edit().remove("session").remove("oauth_state").apply() }
 
     private fun requestToken(path: String, body: String): Result<AuthSession> = runCatching {
         require(BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_ANON_KEY.isNotBlank()) { "SUPABASE_NOT_CONFIGURED" }
@@ -70,6 +102,12 @@ class AuthRepository(private val context: Context) {
         val o = Json.parseToJsonElement(text).jsonObject
         o["msg"]?.jsonPrimitive?.content ?: o["error_description"]?.jsonPrimitive?.content ?: o["error"]?.jsonPrimitive?.content ?: "AUTH_FAILED"
     }.getOrDefault("AUTH_FAILED")
+
+    private fun randomState(): String {
+        val bytes = ByteArray(24)
+        SecureRandom().nextBytes(bytes)
+        return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    }
 
     private fun key(): SecretKey {
         val alias = "cab-auth-key"
