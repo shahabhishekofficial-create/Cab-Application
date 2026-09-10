@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -12,11 +14,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.caboperations.driver.BuildConfig
 import com.caboperations.driver.auth.AuthRepository
@@ -43,7 +47,7 @@ fun TransactionEntryScreen(
     onCancel: () -> Unit
 ) {
     val entryType = runCatching { EntryType.valueOf(type) }.getOrElse { EntryType.TRIP }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val auth = remember { AuthRepository(context) }
 
@@ -70,12 +74,14 @@ fun TransactionEntryScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
 
-    androidx.compose.runtime.LaunchedEffect(entryType) {
+    LaunchedEffect(entryType) {
         if (entryType == EntryType.TRIP) {
             auth.refreshIfNeeded().getOrNull()?.accessToken?.let { token ->
-                withContext(Dispatchers.IO) {
+                val loaded = withContext(Dispatchers.IO) {
                     PlatformRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty()
-                }.also { loaded -> platforms = loaded; selectedPlatform = loaded.firstOrNull() }
+                }
+                platforms = loaded
+                selectedPlatform = loaded.firstOrNull()
             }
         }
     }
@@ -92,6 +98,10 @@ fun TransactionEntryScreen(
                         val end = endOdo.toDoubleOrNull() ?: error("Enter ending odometer")
                         val gross = fare.toDoubleOrNull() ?: error("Enter fare")
                         val charges = additionalCharges.toDoubleOrNull() ?: error("Enter additional charges")
+                        require(start >= 0 && end >= 0) { "Odometer cannot be negative" }
+                        require(end >= start) { "Ending odometer cannot be less than starting odometer" }
+                        require(gross >= 0) { "Fare cannot be negative" }
+                        require(charges >= 0) { "Additional charges cannot be negative" }
                         TripLocalRepository(context).queueTrip(
                             sessionId, driverId, vehicleId, start, end, gross, status,
                             platformId = selectedPlatform?.id,
@@ -104,11 +114,18 @@ fun TransactionEntryScreen(
                         val qty = quantity.toDoubleOrNull() ?: error("Enter quantity")
                         val fuelRate = rate.toDoubleOrNull() ?: error("Enter rate")
                         val total = amount.toDoubleOrNull() ?: error("Enter amount")
-                        FuelLocalRepository(context).queueFuel(sessionId, driverId, vehicleId, fuelType, odo, qty, unit, fuelRate, total, paymentMethod = payment, notes = notes.ifBlank { null })
+                        require(odo >= 0) { "Odometer cannot be negative" }
+                        require(qty > 0) { "Quantity must be greater than zero" }
+                        require(fuelRate >= 0) { "Rate cannot be negative" }
+                        require(total > 0) { "Amount must be greater than zero" }
+                        FuelLocalRepository(context).queueFuel(sessionId, driverId, vehicleId, fuelType.trim(), odo, qty, unit.trim(), fuelRate, total, paymentMethod = payment, notes = notes.ifBlank { null })
                     }
                     EntryType.EXPENSE -> {
                         val total = amount.toDoubleOrNull() ?: error("Enter amount")
-                        ExpenseLocalRepository(context).queueExpense(sessionId, driverId, vehicleId, total, categoryId = category.ifBlank { null }, paymentMethod = payment, odometer = startOdo.toDoubleOrNull(), notes = notes.ifBlank { null })
+                        val odo = startOdo.toDoubleOrNull()
+                        require(total > 0) { "Amount must be greater than zero" }
+                        require(odo == null || odo >= 0) { "Odometer cannot be negative" }
+                        ExpenseLocalRepository(context).queueExpense(sessionId, driverId, vehicleId, total, categoryId = category.trim().ifBlank { null }, paymentMethod = payment, odometer = odo, notes = notes.ifBlank { null })
                     }
                 }
                 onSaved(id)
@@ -117,7 +134,10 @@ fun TransactionEntryScreen(
         }
     }
 
-    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        Modifier.fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         Text(entryType.name.replace('_', ' '))
         Text("Session: $sessionId")
         when (entryType) {
