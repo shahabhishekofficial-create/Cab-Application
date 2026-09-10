@@ -14,6 +14,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.caboperations.driver.auth.AuthRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -22,6 +23,7 @@ fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Driver Login")
@@ -31,15 +33,12 @@ fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
         Button(onClick = {
             if (email.isBlank() || password.isBlank()) { error = "Email and password are required"; return@Button }
             busy = true
-            LaunchedEffect(Unit) {}
-        }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-            if (busy) CircularProgressIndicator() else Text("LOGIN")
-        }
-        if (busy) {
-            LaunchedEffect(email, password, busy) {
+            scope.launch {
                 val result = withContext(Dispatchers.IO) { auth.login(email.trim(), password) }
                 if (result.isSuccess) onLoggedIn() else { error = result.exceptionOrNull()?.message ?: "LOGIN_FAILED"; busy = false }
             }
+        }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            if (busy) CircularProgressIndicator() else Text("LOGIN")
         }
     }
 }
