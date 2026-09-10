@@ -1,6 +1,5 @@
 package com.caboperations.driver.data
 
-import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Insert
@@ -31,6 +30,9 @@ interface LocalSessionDao {
 
     @Query("SELECT * FROM sessions WHERE driverId = :driverId AND vehicleId = :vehicleId AND status = 'OPEN' LIMIT 1")
     suspend fun currentOpen(driverId: String, vehicleId: String): LocalSession?
+
+    @Query("UPDATE sessions SET status = 'CLOSED', closeOdometer = :closeOdometer WHERE sessionId = :sessionId")
+    suspend fun markClosed(sessionId: String, closeOdometer: Double)
 }
 
 @Dao
