@@ -45,7 +45,7 @@ export const fuelSchema = z.object({
 
 export const expenseSchema = z.object({
   clientTransactionId: uuidSchema, sessionId: uuidSchema, driverId: uuidSchema, vehicleId: uuidSchema,
-  categoryId: uuidSchema.nullable().optional(), amount: z.number().finite().nonnegative(), paymentMethod: z.enum(['CASH','UPI','CARD','BANK','OTHER']).nullable().optional(), proofFileId: uuidSchema.nullable().optional(),
+  categoryId: uuidSchema.nullable().optional(), amount: z.number().finite().positive(), paymentMethod: z.enum(['CASH','UPI','CARD','BANK','OTHER']).nullable().optional(), proofFileId: uuidSchema.nullable().optional(),
   odometer: z.number().finite().nonnegative().nullable().optional(), latitude: z.number().gte(-90).lte(90).nullable().optional(), longitude: z.number().gte(-180).lte(180).nullable().optional(),
   gpsAccuracyM: z.number().finite().nonnegative().nullable().optional(), recordedAt: z.string().datetime(), notes: z.string().max(2000).nullable().optional(),
 });
