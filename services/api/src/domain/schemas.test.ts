@@ -9,6 +9,7 @@ const ids = {
 };
 const timestamp = '2026-09-10T00:00:00.000Z';
 function trip(overrides: Record<string, unknown> = {}) { return tripSchema.safeParse({ ...ids, startedAt: timestamp, startOdometer: 100, endOdometer: 110, grossFare: 100, status: 'COMPLETED', ...overrides }); }
+function fuel(overrides: Record<string, unknown> = {}) { return fuelSchema.safeParse({ ...ids, fuelType: 'CNG', odometer: 100, quantity: 10, unit: 'KG', rate: 90, amount: 900, recordedAt: timestamp, ...overrides }); }
 
 describe('session start schema', () => {
   it('requires the stable client-generated session ID', () => { const { sessionId: _, ...withoutSessionId } = ids; expect(startSessionSchema.safeParse({ ...withoutSessionId, startedAt: timestamp, startOdometer: 100 }).success).toBe(false); });
@@ -23,9 +24,11 @@ describe('transaction schemas', () => {
   it('rejects negative trip additional charges', () => expect(trip({ additionalCharges: -1 }).success).toBe(false));
   it('rejects invalid payment methods', () => expect(trip({ paymentMethod: 'WALLET' }).success).toBe(false));
   it('rejects negative fare', () => expect(trip({ grossFare: -1 }).success).toBe(false));
-  it('requires positive fuel quantity', () => expect(fuelSchema.safeParse({ ...ids, fuelType: 'CNG', odometer: 100, quantity: 0, unit: 'KG', rate: 90, amount: 0, recordedAt: timestamp }).success).toBe(false));
-  it('rejects negative fuel amount', () => expect(fuelSchema.safeParse({ ...ids, fuelType: 'CNG', odometer: 100, quantity: 1, unit: 'KG', rate: 90, amount: -1, recordedAt: timestamp }).success).toBe(false));
-  it('rejects negative fuel rate and odometer', () => expect(fuelSchema.safeParse({ ...ids, fuelType: 'CNG', odometer: -1, quantity: 1, unit: 'KG', rate: -1, amount: 90, recordedAt: timestamp }).success).toBe(false));
+  it('requires positive fuel quantity', () => expect(fuel({ quantity: 0, amount: 0 }).success).toBe(false));
+  it('rejects negative fuel amount', () => expect(fuel({ amount: -1 }).success).toBe(false));
+  it('rejects negative fuel rate and odometer', () => expect(fuel({ odometer: -1, rate: -1, amount: 90 }).success).toBe(false));
+  it('rejects a fuel amount that does not match quantity × rate', () => expect(fuel({ amount: 899 }).success).toBe(false));
+  it('accepts fuel amount within currency rounding tolerance', () => expect(fuel({ quantity: 3, rate: 90.01, amount: 270.03 }).success).toBe(true));
   it('accepts an expense without optional proof or GPS', () => expect(expenseSchema.safeParse({ ...ids, amount: 250, recordedAt: timestamp }).success).toBe(true));
   it('rejects negative expense amounts', () => expect(expenseSchema.safeParse({ ...ids, amount: -1, recordedAt: timestamp }).success).toBe(false));
   it('rejects invalid expense payment methods', () => expect(expenseSchema.safeParse({ ...ids, amount: 250, paymentMethod: 'WALLET', recordedAt: timestamp }).success).toBe(false));
