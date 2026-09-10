@@ -37,14 +37,34 @@ describe('transaction schemas', () => {
     expect(result.additionalCharges).toBe(0);
   });
 
+  it('rejects negative trip additional charges', () => {
+    const result = tripSchema.safeParse({ ...ids, startedAt: '2026-09-10T00:00:00.000Z', startOdometer: 100, endOdometer: 110, grossFare: 100, additionalCharges: -1, status: 'COMPLETED' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects invalid payment methods', () => {
+    const result = tripSchema.safeParse({ ...ids, startedAt: '2026-09-10T00:00:00.000Z', startOdometer: 100, endOdometer: 110, grossFare: 100, paymentMethod: 'WALLET', status: 'COMPLETED' });
+    expect(result.success).toBe(false);
+  });
+
   it('requires positive fuel quantity', () => {
     const result = fuelSchema.safeParse({ ...ids, fuelType: 'CNG', odometer: 100, quantity: 0, unit: 'KG', rate: 90, amount: 0, recordedAt: '2026-09-10T00:00:00.000Z' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects negative fuel amount', () => {
+    const result = fuelSchema.safeParse({ ...ids, fuelType: 'CNG', odometer: 100, quantity: 1, unit: 'KG', rate: 90, amount: -1, recordedAt: '2026-09-10T00:00:00.000Z' });
     expect(result.success).toBe(false);
   });
 
   it('accepts an expense without optional proof or GPS', () => {
     const result = expenseSchema.safeParse({ ...ids, amount: 250, recordedAt: '2026-09-10T00:00:00.000Z' });
     expect(result.success).toBe(true);
+  });
+
+  it('rejects negative expense amounts', () => {
+    const result = expenseSchema.safeParse({ ...ids, amount: -1, recordedAt: '2026-09-10T00:00:00.000Z' });
+    expect(result.success).toBe(false);
   });
 });
 
