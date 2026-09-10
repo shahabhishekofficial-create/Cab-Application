@@ -51,4 +51,6 @@ For a physical Android phone, replace `10.0.2.2` with the LAN-reachable API URL 
 - API identity is derived from the authenticated user, never from client-supplied driver/vehicle identity.
 
 ## CI
-GitHub Actions builds/tests the API and builds the admin web app on pushes and pull requests to `main`.
+GitHub Actions checks migration numbering, builds/tests the API, builds the admin web app, builds the Android debug APK, and runs Android unit tests on pushes and pull requests to `main`.
+
+For local Android verification from `apps/driver-android`, use Gradle 8.11.1 with Java 17 and run `assembleDebug` followed by `testDebugUnitTest`.
