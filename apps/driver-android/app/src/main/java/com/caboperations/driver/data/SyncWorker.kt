@@ -7,9 +7,9 @@ import com.caboperations.driver.network.ApiClient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
 
-/** Durable offline sync. Session creation is a dependency: transactions must not be
- * sent when their session start was rejected. Client transaction IDs make retries safe. */
+/** Durable offline sync. Files are uploaded before transactions that reference them. */
 class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val dao = CabDatabase.get(applicationContext).pendingTransactionDao()
@@ -22,12 +22,42 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
 
         for (item in pending) {
             val json = runCatching { Json.parseToJsonElement(item.payloadJson).jsonObject }.getOrNull()
-            val driverId = json?.get("driverId")?.jsonPrimitive?.content
-            val vehicleId = json?.get("vehicleId")?.jsonPrimitive?.content
+            if (json == null) {
+                dao.markFailed(item.clientTransactionId, "INVALID_LOCAL_PAYLOAD")
+                continue
+            }
+            val driverId = json["driverId"]?.jsonPrimitive?.content
+            val vehicleId = json["vehicleId"]?.jsonPrimitive?.content
+
+            if (item.type == TYPE_FILE_UPLOAD) {
+                val filePath = json["localFilePath"]?.jsonPrimitive?.content
+                val fileId = json["fileId"]?.jsonPrimitive?.content
+                val objectPath = json["objectPath"]?.jsonPrimitive?.content
+                val mimeType = json["mimeType"]?.jsonPrimitive?.content ?: "image/jpeg"
+                val capturedAt = json["capturedAt"]?.jsonPrimitive?.content
+                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) {
+                    dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD")
+                    continue
+                }
+                val file = File(filePath)
+                if (!file.exists()) {
+                    dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING")
+                    continue
+                }
+                val result = api.uploadFile("/v1/files", fileId, objectPath, mimeType, file.readBytes(), capturedAt)
+                if (result.success) dao.markSynced(item.clientTransactionId)
+                else {
+                    dao.markFailed(item.clientTransactionId, result.error ?: "FILE_UPLOAD_FAILED")
+                    if (result.retryable) retry = true
+                }
+                if (!result.success) break
+                continue
+            }
+
             val path = when (item.type) {
                 TYPE_SESSION_START -> "/v1/sessions"
                 TYPE_SESSION_CLOSE -> {
-                    val sessionId = json?.get("sessionId")?.jsonPrimitive?.content
+                    val sessionId = json["sessionId"]?.jsonPrimitive?.content
                     if (sessionId.isNullOrBlank()) {
                         dao.markFailed(item.clientTransactionId, "MISSING_SESSION_ID")
                         continue
@@ -49,9 +79,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
             } else {
                 dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_FAILED")
                 if (result.retryable) retry = true
-                // A transaction cannot be validly persisted without its session start.
-                // Stop this pass so dependent items remain queued for the next attempt.
-                if (item.type == TYPE_SESSION_START) break
+                if (item.type == TYPE_SESSION_START || item.type == TYPE_SESSION_CLOSE) break
             }
         }
         return if (retry) Result.retry() else Result.success()
@@ -59,6 +87,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
 
     companion object {
         const val KEY_BASE_URL = "api_base_url"
+        const val TYPE_FILE_UPLOAD = "FILE_UPLOAD"
         const val TYPE_SESSION_START = "SESSION_START"
         const val TYPE_SESSION_CLOSE = "SESSION_CLOSE"
         const val TYPE_TRIP = "TRIP"
