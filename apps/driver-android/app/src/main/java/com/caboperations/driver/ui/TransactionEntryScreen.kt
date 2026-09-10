@@ -40,19 +40,11 @@ private val paymentMethods = listOf("CASH", "UPI", "CARD", "BANK", "OTHER")
 private val tripStatuses = listOf("COMPLETED", "CANCELLED_BY_CUSTOMER", "CANCELLED_BY_DRIVER", "CUSTOMER_NO_SHOW")
 
 @Composable
-fun TransactionEntryScreen(
-    type: String,
-    sessionId: String,
-    driverId: String,
-    vehicleId: String,
-    onSaved: (String) -> Unit,
-    onCancel: () -> Unit
-) {
+fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, vehicleId: String, onSaved: (String) -> Unit, onCancel: () -> Unit) {
     val entryType = runCatching { EntryType.valueOf(type) }.getOrElse { EntryType.TRIP }
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val auth = remember { AuthRepository(context) }
-
     var startOdo by remember { mutableStateOf("") }
     var endOdo by remember { mutableStateOf("") }
     var fare by remember { mutableStateOf("") }
@@ -86,8 +78,7 @@ fun TransactionEntryScreen(
                 selectedPlatform = loaded.firstOrNull()
             }
             if (entryType == EntryType.EXPENSE) {
-                val loaded = withContext(Dispatchers.IO) { ExpenseCategoryRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
-                categories = loaded
+                categories = withContext(Dispatchers.IO) { ExpenseCategoryRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
             }
         }
     }
@@ -161,10 +152,7 @@ fun TransactionEntryScreen(
             }
             EntryType.EXPENSE -> {
                 OutlinedTextField(amount, { amount = it }, label = { Text("Amount ₹") }, modifier = Modifier.fillMaxWidth())
-                Box { OutlinedButton({ categoryMenu = true }, Modifier.fillMaxWidth()) { Text("Category: ${category?.name ?: "Uncategorized"}") }; DropdownMenu(categoryMenu, { categoryMenu = false }) {
-                    DropdownMenuItem(text = { Text("Uncategorized") }, onClick = { category = null; categoryMenu = false })
-                    categories.forEach { c -> DropdownMenuItem(text = { Text(c.name) }, onClick = { category = c; categoryMenu = false }) }
-                } }
+                Box { OutlinedButton({ categoryMenu = true }, Modifier.fillMaxWidth()) { Text("Category: ${category?.name ?: "Uncategorized"}") }; DropdownMenu(categoryMenu, { categoryMenu = false }) { DropdownMenuItem(text = { Text("Uncategorized") }, onClick = { category = null; categoryMenu = false }); categories.forEach { c -> DropdownMenuItem(text = { Text(c.name) }, onClick = { category = c; categoryMenu = false }) } } }
                 Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth()) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { payment = p; paymentMenu = false }) } } }
                 OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Odometer (optional)") }, modifier = Modifier.fillMaxWidth())
             }
