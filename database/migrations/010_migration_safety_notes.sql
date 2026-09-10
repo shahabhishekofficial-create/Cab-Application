@@ -1,0 +1,5 @@
+-- Migration safety marker.
+-- Database migrations are append-only. Never edit an already-applied migration.
+-- 009 explicitly replaces both possible driver-context function signatures so a
+-- database upgraded from an earlier revision cannot retain an obsolete overload.
+-- Apply migrations in numeric filename order.
