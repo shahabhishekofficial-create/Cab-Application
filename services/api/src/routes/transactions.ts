@@ -9,13 +9,17 @@ function errorResponse(reply: any, error: unknown) {
 
   const message = error instanceof Error ? error.message : String(error);
   const known = [
+    'DRIVER_VEHICLE_NOT_ASSIGNED',
+    'VEHICLE_NOT_ACTIVE',
     'SESSION_NOT_OPEN',
+    'SESSION_CLOSED',
+    'SESSION_DRIVER_MISMATCH',
+    'SESSION_VEHICLE_MISMATCH',
     'SESSION_IDENTITY_MISMATCH',
   ];
   const code = known.find((value) => message.includes(value));
   if (code) return reply.code(409).send({ error: code, message: code });
 
-  // Never expose raw database/driver errors to the client.
   return reply.code(500).send({ error: 'TRANSACTION_FAILED' });
 }
 
