@@ -1,0 +1,34 @@
+package com.caboperations.driver.auth
+
+import android.content.Context
+import com.caboperations.driver.BuildConfig
+import com.caboperations.driver.data.DriverIdentity
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.net.HttpURLConnection
+import java.net.URL
+
+@Serializable
+data class DriverContext(val userId: String, val driverId: String, val displayName: String, val vehicleId: String? = null, val registrationNumber: String? = null)
+
+class DriverContextRepository(private val context: Context) {
+    fun load(accessToken: String): Result<DriverContext> = runCatching {
+        val connection = (URL(BuildConfig.API_BASE_URL.trimEnd('/') + "/v1/me/driver-context").openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"; connectTimeout = 10_000; readTimeout = 15_000
+            setRequestProperty("Authorization", "Bearer $accessToken")
+        }
+        try {
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) error(Json.parseToJsonElement(text).jsonObject["error"]?.jsonPrimitive?.content ?: "DRIVER_CONTEXT_FAILED")
+            val contextJson = Json.parseToJsonElement(text).jsonObject["context"] ?: error("DRIVER_CONTEXT_FAILED")
+            val driverContext = Json.decodeFromJsonElement<DriverContext>(contextJson)
+            if (driverContext.vehicleId.isNullOrBlank()) error("NO_ACTIVE_VEHICLE_ASSIGNMENT")
+            DriverIdentity(context).configure(driverContext.driverId, driverContext.vehicleId)
+            driverContext
+        } finally { connection.disconnect() }
+    }
+}
