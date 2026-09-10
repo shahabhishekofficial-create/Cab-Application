@@ -53,11 +53,12 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
     if (!Buffer.isBuffer(body) || body.length === 0) return reply.code(400).send({ error: 'EMPTY_FILE' });
     if (body.length > 10 * 1024 * 1024) return reply.code(413).send({ error: 'FILE_TOO_LARGE' });
 
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('files')
       .select('id,object_path,mime_type')
       .eq('id', parsed.data.fileId)
       .maybeSingle();
+    if (existingError) throw existingError;
     if (existing && (existing.object_path !== parsed.data.objectPath || existing.mime_type !== parsed.data.mimeType)) {
       return reply.code(409).send({ error: 'FILE_ID_CONFLICT' });
     }
