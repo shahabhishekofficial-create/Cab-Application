@@ -19,8 +19,10 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
         if (pending.isEmpty()) return Result.success()
 
         val baseUrl = inputData.getString(KEY_BASE_URL) ?: BuildConfig.API_BASE_URL
-        val token = AuthRepository(applicationContext).session()?.accessToken
-            ?: return Result.failure()
+        val auth = AuthRepository(applicationContext)
+        val tokenResult = auth.refreshIfNeeded()
+        if (tokenResult.isFailure) return Result.failure()
+        val token = tokenResult.getOrNull()?.accessToken ?: return Result.failure()
         val api = ApiClient(baseUrl, token)
         var retry = false
 
