@@ -48,11 +48,15 @@ fun SessionStartScreen(
     var busy by remember { mutableStateOf(false) }
 
     fun captureGps() {
+        status = "Getting best available GPS fix…"
         FusedLocationProvider(context).currentLocation { location, error ->
             gps = location
-            status = error ?: if (location?.isUsable() == true) {
-                "GPS ready • ±${location.accuracyMeters.toInt()} m"
-            } else "GPS accuracy needs review"
+            status = when {
+                error != null -> error
+                location?.isUsable() == true -> "GPS ready • ±${location.accuracyMeters.toInt()} m"
+                location != null -> "GPS captured • ±${location.accuracyMeters.toInt()} m • accuracy needs review"
+                else -> "GPS unavailable • retry"
+            }
         }
     }
 
@@ -60,7 +64,7 @@ fun SessionStartScreen(
         val cameraGranted = grants[Manifest.permission.CAMERA] == true || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         val locationGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!cameraGranted) status = "Camera permission is required"
-        if (locationGranted) captureGps() else if (!cameraGranted) status = "Camera and location permissions are required"
+        if (locationGranted) captureGps() else status = "Location permission is required"
     }
 
     LaunchedEffect(Unit) {
@@ -74,9 +78,7 @@ fun SessionStartScreen(
         Text("Driver: $driverId")
         Text("Vehicle: $vehicleId")
         OutlinedTextField(value = odometer, onValueChange = { odometer = it }, label = { Text("Starting odometer") }, modifier = Modifier.fillMaxWidth())
-        AndroidView(factory = { PreviewView(it) }, modifier = Modifier.fillMaxWidth().height(280.dp), update = { view ->
-            CameraPreviewController(context).bind(owner, view) { imageCapture = it }
-        })
+        AndroidView(factory = { PreviewView(it) }, modifier = Modifier.fillMaxWidth().height(280.dp), update = { view -> CameraPreviewController(context).bind(owner, view) { imageCapture = it } })
         Button(enabled = imageCapture != null && !busy, onClick = {
             val capture = imageCapture ?: return@Button
             busy = true
@@ -86,20 +88,17 @@ fun SessionStartScreen(
                     scope.launch {
                         status = "Reading odometer…"
                         ocr = OdometerOcrEngine(context).recognize(uri)
-                        val reading = ocr?.reading
-                        status = if (reading != null) "OCR: $reading • quality ${(ocr!!.confidence * 100).toInt()}%" else "OCR could not read the odometer • manual review"
+                        status = ocr?.reading?.let { reading -> "OCR: $reading • quality ${(ocr!!.confidence * 100).toInt()}%" } ?: "OCR could not read the odometer • manual review"
                         busy = false
                     }
                 }.onFailure { status = "Camera failed: ${it.message}"; busy = false }
             }
         }, modifier = Modifier.fillMaxWidth()) { Text("CAPTURE & READ ODOMETER") }
+        Button(enabled = !busy, onClick = { captureGps() }, modifier = Modifier.fillMaxWidth()) { Text("REFRESH GPS") }
         Text(status)
         ocr?.let { result ->
             val manual = odometer.toDoubleOrNull()
-            if (manual != null) {
-                val decision = OdometerVerifier.compare(manual, result.reading, result.confidence)
-                Text("OCR verification: ${decision.name}")
-            }
+            if (manual != null) Text("OCR verification: ${OdometerVerifier.compare(manual, result.reading, result.confidence).name}")
         }
         Button(enabled = !busy && odometer.toDoubleOrNull() != null && photoPath != null && gps?.isUsable() == true && ocr != null, onClick = {
             val odo = odometer.toDoubleOrNull() ?: return@Button
@@ -108,10 +107,7 @@ fun SessionStartScreen(
             val ocrResult = ocr ?: return@Button
             val decision = OdometerVerifier.compare(odo, ocrResult.reading, ocrResult.confidence)
             busy = true
-            scope.launch {
-                try { onStart(odo, location, photo, ocrResult, decision) }
-                catch (e: Exception) { status = e.message ?: "Unable to open session"; busy = false }
-            }
+            scope.launch { try { onStart(odo, location, photo, ocrResult, decision) } catch (e: Exception) { status = e.message ?: "Unable to open session"; busy = false } }
         }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "OPENING…" else "OPEN SESSION") }
         Button(enabled = !busy, onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("CANCEL") }
     }
