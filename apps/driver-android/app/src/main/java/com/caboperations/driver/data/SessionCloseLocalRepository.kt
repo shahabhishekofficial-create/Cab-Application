@@ -3,6 +3,8 @@ package com.caboperations.driver.data
 import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
+import com.caboperations.driver.ocr.OdometerOcrResult
+import com.caboperations.driver.ocr.OdometerVerifier
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
@@ -24,7 +26,9 @@ class SessionCloseLocalRepository(private val context: Context) {
         closeOdometerFilePath: String? = null,
         reportedTripCount: Int,
         reportedIncome: Double,
-        notes: String? = null
+        notes: String? = null,
+        ocrResult: OdometerOcrResult? = null,
+        ocrDecision: OdometerVerifier.Decision? = null
     ) {
         require(closeOdometer >= 0) { "Closing odometer must be non-negative" }
         require(reportedTripCount >= 0) { "Reported trip count must be non-negative" }
@@ -58,23 +62,21 @@ class SessionCloseLocalRepository(private val context: Context) {
             fileId?.let { put("closeOdometerFileId", it) }
             put("reportedTripCount", reportedTripCount)
             put("reportedIncome", reportedIncome)
+            ocrResult?.reading?.let { put("ocrReading", it) }
+            ocrResult?.let { put("ocrConfidence", it.confidence); put("ocrRawText", it.rawText) }
+            ocrDecision?.let { put("ocrDecision", it.name) }
             notes?.let { put("notes", it) }
         }.toString()
 
         db.withTransaction {
             if (fileId != null && filePath != null) {
-                db.pendingTransactionDao().insert(
-                    PendingTransaction(
-                        UUID.randomUUID().toString(), "FILE_UPLOAD",
-                        buildJsonObject {
-                            put("fileId", fileId)
-                            put("localFilePath", filePath)
-                            put("objectPath", objectPath!!)
-                            put("mimeType", "image/jpeg")
-                            put("capturedAt", closedAt)
-                        }.toString(), System.currentTimeMillis()
-                    )
-                )
+                db.pendingTransactionDao().insert(PendingTransaction(
+                    UUID.randomUUID().toString(), "FILE_UPLOAD",
+                    buildJsonObject {
+                        put("fileId", fileId); put("localFilePath", filePath)
+                        put("objectPath", objectPath!!); put("mimeType", "image/jpeg"); put("capturedAt", closedAt)
+                    }.toString(), System.currentTimeMillis()
+                ))
             }
             db.localSessionDao().markClosed(sessionId, closeOdometer)
             db.pendingTransactionDao().insert(PendingTransaction(transactionId, "SESSION_CLOSE", payload, System.currentTimeMillis()))
