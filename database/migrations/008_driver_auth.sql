@@ -1,20 +1,20 @@
 -- Driver authentication/assignment read model.
--- Supabase Auth remains the identity provider; app_users/assignments remain business authority.
+-- Supabase Auth is the identity provider; app_users/assignments remain business authority.
+-- The API validates the JWT before calling this service-role RPC, so the user id is explicit.
 
-create or replace function public.get_my_driver_context()
+create or replace function public.get_my_driver_context(p_user_id uuid)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_user_id uuid := auth.uid();
   v_driver_id uuid;
   v_display_name text;
   v_vehicle_id uuid;
   v_registration text;
 begin
-  if v_user_id is null then
+  if p_user_id is null then
     raise exception 'AUTH_REQUIRED';
   end if;
 
@@ -22,7 +22,7 @@ begin
     into v_driver_id, v_display_name
   from public.drivers d
   join public.app_users u on u.id = d.user_id
-  where d.user_id = v_user_id and u.is_active = true;
+  where d.user_id = p_user_id and u.is_active = true;
 
   if v_driver_id is null then
     raise exception 'DRIVER_PROFILE_NOT_FOUND';
@@ -39,7 +39,7 @@ begin
   limit 1;
 
   return jsonb_build_object(
-    'userId', v_user_id,
+    'userId', p_user_id,
     'driverId', v_driver_id,
     'displayName', v_display_name,
     'vehicleId', v_vehicle_id,
@@ -48,5 +48,5 @@ begin
 end;
 $$;
 
-revoke all on function public.get_my_driver_context() from public;
-grant execute on function public.get_my_driver_context() to authenticated, service_role;
+revoke all on function public.get_my_driver_context(uuid) from public;
+grant execute on function public.get_my_driver_context(uuid) to service_role;
