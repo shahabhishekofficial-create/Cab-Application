@@ -13,6 +13,14 @@ class OdometerVerifierTest {
     }
 
     @Test
+    fun exactToleranceBoundaryPasses() {
+        assertEquals(
+            OdometerVerifier.Decision.PASS,
+            OdometerVerifier.compare(12543.2, 12544.2, 0.92f, toleranceKm = 1.0)
+        )
+    }
+
+    @Test
     fun mismatchRequiresReview() {
         assertEquals(
             OdometerVerifier.Decision.REVIEW,
