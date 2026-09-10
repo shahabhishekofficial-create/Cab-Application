@@ -27,6 +27,8 @@ import com.caboperations.driver.auth.AuthRepository
 import com.caboperations.driver.data.ExpenseLocalRepository
 import com.caboperations.driver.data.FuelLocalRepository
 import com.caboperations.driver.data.TripLocalRepository
+import com.caboperations.driver.network.ExpenseCategoryOption
+import com.caboperations.driver.network.ExpenseCategoryRepository
 import com.caboperations.driver.network.PlatformOption
 import com.caboperations.driver.network.PlatformRepository
 import kotlinx.coroutines.Dispatchers
@@ -64,24 +66,28 @@ fun TransactionEntryScreen(
     var unit by remember { mutableStateOf("KG") }
     var rate by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf<ExpenseCategoryOption?>(null) }
+    var categories by remember { mutableStateOf<List<ExpenseCategoryOption>>(emptyList()) }
     var notes by remember { mutableStateOf("") }
     var platforms by remember { mutableStateOf<List<PlatformOption>>(emptyList()) }
     var selectedPlatform by remember { mutableStateOf<PlatformOption?>(null) }
     var platformMenu by remember { mutableStateOf(false) }
+    var categoryMenu by remember { mutableStateOf(false) }
     var paymentMenu by remember { mutableStateOf(false) }
     var statusMenu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
 
     LaunchedEffect(entryType) {
-        if (entryType == EntryType.TRIP) {
-            auth.refreshIfNeeded().getOrNull()?.accessToken?.let { token ->
-                val loaded = withContext(Dispatchers.IO) {
-                    PlatformRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty()
-                }
+        auth.refreshIfNeeded().getOrNull()?.accessToken?.let { token ->
+            if (entryType == EntryType.TRIP) {
+                val loaded = withContext(Dispatchers.IO) { PlatformRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
                 platforms = loaded
                 selectedPlatform = loaded.firstOrNull()
+            }
+            if (entryType == EntryType.EXPENSE) {
+                val loaded = withContext(Dispatchers.IO) { ExpenseCategoryRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
+                categories = loaded
             }
         }
     }
@@ -102,12 +108,7 @@ fun TransactionEntryScreen(
                         require(end >= start) { "Ending odometer cannot be less than starting odometer" }
                         require(gross >= 0) { "Fare cannot be negative" }
                         require(charges >= 0) { "Additional charges cannot be negative" }
-                        TripLocalRepository(context).queueTrip(
-                            sessionId, driverId, vehicleId, start, end, gross, status,
-                            platformId = selectedPlatform?.id,
-                            pickup = pickup.ifBlank { null }, dropoff = dropoff.ifBlank { null },
-                            paymentMethod = payment, additionalCharges = charges, notes = notes.ifBlank { null }
-                        )
+                        TripLocalRepository(context).queueTrip(sessionId, driverId, vehicleId, start, end, gross, status, platformId = selectedPlatform?.id, pickup = pickup.ifBlank { null }, dropoff = dropoff.ifBlank { null }, paymentMethod = payment, additionalCharges = charges, notes = notes.ifBlank { null })
                     }
                     EntryType.FUEL -> {
                         val odo = startOdo.toDoubleOrNull() ?: error("Enter odometer")
@@ -125,7 +126,7 @@ fun TransactionEntryScreen(
                         val odo = startOdo.toDoubleOrNull()
                         require(total > 0) { "Amount must be greater than zero" }
                         require(odo == null || odo >= 0) { "Odometer cannot be negative" }
-                        ExpenseLocalRepository(context).queueExpense(sessionId, driverId, vehicleId, total, categoryId = category.trim().ifBlank { null }, paymentMethod = payment, odometer = odo, notes = notes.ifBlank { null })
+                        ExpenseLocalRepository(context).queueExpense(sessionId, driverId, vehicleId, total, categoryId = category?.id, paymentMethod = payment, odometer = odo, notes = notes.ifBlank { null })
                     }
                 }
                 onSaved(id)
@@ -134,10 +135,7 @@ fun TransactionEntryScreen(
         }
     }
 
-    Column(
-        Modifier.fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    Column(Modifier.fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(entryType.name.replace('_', ' '))
         Text("Session: $sessionId")
         when (entryType) {
@@ -163,7 +161,10 @@ fun TransactionEntryScreen(
             }
             EntryType.EXPENSE -> {
                 OutlinedTextField(amount, { amount = it }, label = { Text("Amount ₹") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(category, { category = it }, label = { Text("Category ID (optional)") }, modifier = Modifier.fillMaxWidth())
+                Box { OutlinedButton({ categoryMenu = true }, Modifier.fillMaxWidth()) { Text("Category: ${category?.name ?: "Uncategorized"}") }; DropdownMenu(categoryMenu, { categoryMenu = false }) {
+                    DropdownMenuItem(text = { Text("Uncategorized") }, onClick = { category = null; categoryMenu = false })
+                    categories.forEach { c -> DropdownMenuItem(text = { Text(c.name) }, onClick = { category = c; categoryMenu = false }) }
+                } }
                 Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth()) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { payment = p; paymentMenu = false }) } } }
                 OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Odometer (optional)") }, modifier = Modifier.fillMaxWidth())
             }
