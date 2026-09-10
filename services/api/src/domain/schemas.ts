@@ -4,6 +4,7 @@ export const uuidSchema = z.string().uuid();
 
 export const startSessionSchema = z.object({
   clientTransactionId: uuidSchema,
+  sessionId: uuidSchema,
   driverId: uuidSchema,
   vehicleId: uuidSchema,
   deviceId: uuidSchema.optional(),
