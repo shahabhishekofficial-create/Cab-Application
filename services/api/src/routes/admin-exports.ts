@@ -24,9 +24,12 @@ export async function registerAdminExportRoutes(app: FastifyInstance): Promise<v
       const config = datasets[dataset] as ExportConfig;
       const { data, error } = await getSupabaseAdmin().from(config.table).select(config.columns).limit(10000);
       if (error) throw error;
-      const rows = (data ?? []) as Record<string, unknown>[];
+      const rows = Array.isArray(data) ? data as unknown[] : [];
       const headers = config.columns.split(',');
-      const csv = [headers.join(','), ...rows.map(row => headers.map(header => csvValue(row[header])).join(','))].join('\n') + '\n';
+      const csv = [headers.join(','), ...rows.map(row => {
+        const record = row !== null && typeof row === 'object' ? row as Record<string, unknown> : {};
+        return headers.map(header => csvValue(record[header])).join(',');
+      })].join('\n') + '\n';
       reply.header('Content-Type', 'text/csv; charset=utf-8');
       reply.header('Content-Disposition', `attachment; filename="cab-${dataset}.csv"`);
       return reply.send(csv);
