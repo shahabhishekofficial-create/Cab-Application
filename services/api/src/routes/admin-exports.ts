@@ -8,7 +8,7 @@ const datasets = {
   fuel: { table: 'fuel_transactions', columns: 'id,session_id,driver_id,vehicle_id,fuel_type,odometer,quantity,unit,rate,amount,payment_method,created_at', dateColumn: 'created_at' },
   expenses: { table: 'expenses', columns: 'id,session_id,driver_id,vehicle_id,category_id,amount,payment_method,created_at', dateColumn: 'created_at' },
   reconciliation: { table: 'reconciliations', columns: 'id,session_id,status,reported_trip_count,reported_income,system_trip_count,system_income,unallocated_km,created_at', dateColumn: 'created_at' },
-  exceptions: { table: 'exceptions', columns: 'id,session_id,type,severity,status,message,created_at', dateColumn: 'created_at' },
+  exceptions: { table: 'exceptions', columns: 'id,entity_type,entity_id,code,severity,status,message,created_at,resolved_at,resolved_by', dateColumn: 'created_at' },
 } as const;
 
 type Dataset = keyof typeof datasets;
