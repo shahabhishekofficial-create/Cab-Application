@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabase-browser';
+import { getSupabaseBrowserClient } from '../../lib/supabase-browser';
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3000';
 type Session = { id: string; session_date: string; status: string; started_at: string; closed_at?: string | null; start_odometer: number; close_odometer?: number | null; driver_id: string; vehicle_id: string; reconciliations?: { status?: string | null; reported_income?: number | null; system_income?: number | null; unallocated_km?: number | null }[] };
@@ -17,10 +17,10 @@ export default function SessionsPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await getSupabaseBrowserClient().auth.getSession();
       if (!session?.access_token) { router.replace('/login'); return; }
       const response = await fetch(`${API}/v1/admin/sessions?limit=100`, { headers: { Authorization: `Bearer ${session.access_token}` } });
-      if (response.status === 401 || response.status === 403) { await supabase.auth.signOut(); router.replace('/login'); return; }
+      if (response.status === 401 || response.status === 403) { await getSupabaseBrowserClient().auth.signOut(); router.replace('/login'); return; }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       if (!cancelled) setRows(data.sessions ?? []);
