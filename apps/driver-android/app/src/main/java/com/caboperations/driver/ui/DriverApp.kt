@@ -1,5 +1,6 @@
 package com.caboperations.driver.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,7 +24,7 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 
 @Composable
-fun DriverApp() {
+fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
     val context = LocalContext.current
     val identity = remember { DriverIdentity(context) }
     val auth = remember { AuthRepository(context) }
@@ -80,8 +81,28 @@ fun DriverApp() {
         return false
     }
 
+    LaunchedEffect(oauthUri) {
+        val uri = oauthUri ?: return@LaunchedEffect
+        onOAuthUriConsumed()
+        if (uri.scheme != "cabdriver" || uri.host != "auth-callback") return@LaunchedEffect
+        screen = "LOADING"
+        val result = withContext(Dispatchers.IO) { auth.consumeGoogleCallback(uri) }
+        if (result.isSuccess && loadAuthenticatedDriver()) {
+            status = "Google login successful • assignment loaded"
+            screen = "HOME"
+        } else {
+            auth.logout()
+            identity.clearAssignment()
+            sessionState.close()
+            status = result.exceptionOrNull()?.message ?: "GOOGLE_LOGIN_FAILED"
+            screen = "LOGIN"
+        }
+    }
+
     LaunchedEffect(Unit) {
-        if (loadAuthenticatedDriver()) screen = "HOME" else { auth.logout(); identity.clearAssignment(); sessionState.close(); screen = "LOGIN" }
+        if (oauthUri == null) {
+            if (loadAuthenticatedDriver()) screen = "HOME" else { auth.logout(); identity.clearAssignment(); sessionState.close(); screen = "LOGIN" }
+        }
     }
     LaunchedEffect(screen) { refreshPending() }
 
