@@ -1,15 +1,14 @@
 package com.caboperations.driver.data
 
 import android.content.Context
-import java.util.UUID
 
 class SessionStateRepository(context: Context) {
     private val prefs = context.getSharedPreferences("session_state", Context.MODE_PRIVATE)
 
     data class State(val sessionId: String, val driverId: String, val vehicleId: String, val startOdometer: Double)
 
-    fun open(driverId: String, vehicleId: String, startOdometer: Double): State {
-        val state = State(UUID.randomUUID().toString(), driverId, vehicleId, startOdometer)
+    fun open(sessionId: String, driverId: String, vehicleId: String, startOdometer: Double): State {
+        val state = State(sessionId, driverId, vehicleId, startOdometer)
         prefs.edit()
             .putString("session_id", state.sessionId)
             .putString("driver_id", driverId)
