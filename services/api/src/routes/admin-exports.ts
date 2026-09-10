@@ -12,6 +12,7 @@ const datasets = {
 } as const;
 
 type Dataset = keyof typeof datasets;
+type ExportConfig = { table: string; columns: string };
 function csvValue(value: unknown): string { const text = value == null ? '' : String(value); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; }
 
 export async function registerAdminExportRoutes(app: FastifyInstance): Promise<void> {
@@ -20,7 +21,7 @@ export async function registerAdminExportRoutes(app: FastifyInstance): Promise<v
       await requireAdmin(request);
       const dataset = (request.params as { dataset: string }).dataset as Dataset;
       if (!(dataset in datasets)) return reply.code(404).send({ error: 'EXPORT_DATASET_NOT_FOUND' });
-      const config = datasets[dataset];
+      const config = datasets[dataset] as ExportConfig;
       const { data, error } = await getSupabaseAdmin().from(config.table).select(config.columns).limit(10000);
       if (error) throw error;
       const rows = (data ?? []) as Record<string, unknown>[];
