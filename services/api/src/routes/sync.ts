@@ -21,6 +21,17 @@ const syncSchema = z.object({
   });
 });
 
+function syncErrorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const known = [
+    'DRIVER_VEHICLE_NOT_ASSIGNED', 'VEHICLE_NOT_ACTIVE', 'SESSION_ALREADY_OPEN',
+    'NO_OPEN_SESSION', 'SESSION_CLOSED', 'SESSION_DRIVER_MISMATCH', 'SESSION_VEHICLE_MISMATCH',
+    'SESSION_IDENTITY_MISMATCH', 'SESSION_NOT_OPEN', 'INVALID_CLOSE_ODOMETER', 'CLOSE_TIME_BEFORE_START',
+    'SESSION_ID_MISMATCH',
+  ];
+  return known.find((value) => message.includes(value)) ?? 'SYNC_FAILED';
+}
+
 export async function registerSyncRoutes(app: FastifyInstance) {
   app.post('/v1/sync', async (request, reply) => {
     let identity;
@@ -69,7 +80,7 @@ export async function registerSyncRoutes(app: FastifyInstance) {
         }
         results.push({ type: item.type, clientTransactionId, accepted: true, result });
       } catch (error) {
-        results.push({ type: item.type, clientTransactionId, accepted: false, error: String((error as Error)?.message ?? 'SYNC_FAILED') });
+        results.push({ type: item.type, clientTransactionId, accepted: false, error: syncErrorCode(error) });
       }
     }
 
