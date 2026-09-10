@@ -40,7 +40,7 @@ class AuthRepository(private val context: Context) {
         val redirect = "cabdriver://auth-callback"
         val encodedRedirect = java.net.URLEncoder.encode(redirect, StandardCharsets.UTF_8.name())
         val encodedState = java.net.URLEncoder.encode(state, StandardCharsets.UTF_8.name())
-        "${BuildConfig.SUPABASE_URL.trimEnd('/')}/auth/v1/authorize?provider=google&redirect_to=$encodedRedirect&state=$encodedState"
+        "${BuildConfig.SUPABASE_URL.trimEnd('/')}/auth/v1/authorize?provider=google&redirect_to=$encodedRedirect&state=$encodedState&flow_type=implicit"
     }
 
     fun consumeGoogleCallback(uri: Uri): Result<AuthSession> = runCatching {
