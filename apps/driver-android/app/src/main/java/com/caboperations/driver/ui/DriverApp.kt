@@ -69,6 +69,22 @@ fun DriverApp() {
                 },
                 onCancel = { screen = "HOME" }
             )
+        } else if (screen == "CLOSE" && currentSession != null && identity.driverId != null && identity.vehicleId != null) {
+            SessionCloseScreen(
+                sessionId = currentSession!!.sessionId,
+                driverId = identity.driverId!!,
+                vehicleId = identity.vehicleId!!,
+                startOdometer = currentSession!!.startOdometer,
+                onClosed = {
+                    sessionState.close()
+                    currentSession = null
+                    status = "Session closed locally • pending sync"
+                    refreshPending()
+                    SyncScheduler.enqueue(context, API_BASE_URL)
+                    screen = "HOME"
+                },
+                onCancel = { screen = "HOME" }
+            )
         } else if (screen == "ENTRY" && currentSession != null && identity.driverId != null && identity.vehicleId != null) {
             TransactionEntryScreen(
                 type = entryType,
@@ -118,7 +134,7 @@ fun DriverApp() {
                             Button(onClick = { entryType = "FUEL"; screen = "ENTRY" }, modifier = Modifier.weight(1f)) { Text("FUEL") }
                         }
                         OutlinedButton(onClick = { entryType = "EXPENSE"; screen = "ENTRY" }, modifier = Modifier.fillMaxWidth()) { Text("EXPENSE") }
-                        OutlinedButton(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("CLOSE SESSION") }
+                        OutlinedButton(onClick = { screen = "CLOSE" }, modifier = Modifier.fillMaxWidth()) { Text("CLOSE SESSION") }
                     }
                 }
                 if (status.isNotBlank()) Text(status)
