@@ -1,12 +1,13 @@
 package com.caboperations.driver.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -17,13 +18,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.caboperations.driver.BuildConfig
+import com.caboperations.driver.auth.AuthRepository
 import com.caboperations.driver.data.ExpenseLocalRepository
 import com.caboperations.driver.data.FuelLocalRepository
 import com.caboperations.driver.data.TripLocalRepository
-import kotlinx.coroutines.CoroutineScope
+import com.caboperations.driver.network.PlatformOption
+import com.caboperations.driver.network.PlatformRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class EntryType { TRIP, FUEL, EXPENSE }
+private val paymentMethods = listOf("CASH", "UPI", "CARD", "BANK", "OTHER")
+private val tripStatuses = listOf("COMPLETED", "CANCELLED_BY_CUSTOMER", "CANCELLED_BY_DRIVER", "CUSTOMER_NO_SHOW")
 
 @Composable
 fun TransactionEntryScreen(
@@ -37,11 +45,12 @@ fun TransactionEntryScreen(
     val entryType = runCatching { EntryType.valueOf(type) }.getOrElse { EntryType.TRIP }
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val auth = remember { AuthRepository(context) }
 
     var startOdo by remember { mutableStateOf("") }
     var endOdo by remember { mutableStateOf("") }
     var fare by remember { mutableStateOf("") }
-    var platform by remember { mutableStateOf("Uber") }
+    var additionalCharges by remember { mutableStateOf("0") }
     var payment by remember { mutableStateOf("UPI") }
     var status by remember { mutableStateOf("COMPLETED") }
     var pickup by remember { mutableStateOf("") }
@@ -53,8 +62,23 @@ fun TransactionEntryScreen(
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
+    var platforms by remember { mutableStateOf<List<PlatformOption>>(emptyList()) }
+    var selectedPlatform by remember { mutableStateOf<PlatformOption?>(null) }
+    var platformMenu by remember { mutableStateOf(false) }
+    var paymentMenu by remember { mutableStateOf(false) }
+    var statusMenu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+
+    androidx.compose.runtime.LaunchedEffect(entryType) {
+        if (entryType == EntryType.TRIP) {
+            auth.refreshIfNeeded().getOrNull()?.accessToken?.let { token ->
+                withContext(Dispatchers.IO) {
+                    PlatformRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty()
+                }.also { loaded -> platforms = loaded; selectedPlatform = loaded.firstOrNull() }
+            }
+        }
+    }
 
     fun save() {
         if (busy) return
@@ -67,10 +91,12 @@ fun TransactionEntryScreen(
                         val start = startOdo.toDoubleOrNull() ?: error("Enter starting odometer")
                         val end = endOdo.toDoubleOrNull() ?: error("Enter ending odometer")
                         val gross = fare.toDoubleOrNull() ?: error("Enter fare")
+                        val charges = additionalCharges.toDoubleOrNull() ?: error("Enter additional charges")
                         TripLocalRepository(context).queueTrip(
                             sessionId, driverId, vehicleId, start, end, gross, status,
+                            platformId = selectedPlatform?.id,
                             pickup = pickup.ifBlank { null }, dropoff = dropoff.ifBlank { null },
-                            paymentMethod = payment.ifBlank { null }, notes = notes.ifBlank { null }
+                            paymentMethod = payment, additionalCharges = charges, notes = notes.ifBlank { null }
                         )
                     }
                     EntryType.FUEL -> {
@@ -78,47 +104,33 @@ fun TransactionEntryScreen(
                         val qty = quantity.toDoubleOrNull() ?: error("Enter quantity")
                         val fuelRate = rate.toDoubleOrNull() ?: error("Enter rate")
                         val total = amount.toDoubleOrNull() ?: error("Enter amount")
-                        FuelLocalRepository(context).queueFuel(
-                            sessionId, driverId, vehicleId, fuelType, odo, qty, unit, fuelRate, total,
-                            paymentMethod = payment.ifBlank { null }, notes = notes.ifBlank { null }
-                        )
+                        FuelLocalRepository(context).queueFuel(sessionId, driverId, vehicleId, fuelType, odo, qty, unit, fuelRate, total, paymentMethod = payment, notes = notes.ifBlank { null })
                     }
                     EntryType.EXPENSE -> {
                         val total = amount.toDoubleOrNull() ?: error("Enter amount")
-                        ExpenseLocalRepository(context).queueExpense(
-                            sessionId, driverId, vehicleId, total,
-                            categoryId = category.ifBlank { null },
-                            paymentMethod = payment.ifBlank { null },
-                            odometer = startOdo.toDoubleOrNull(), notes = notes.ifBlank { null }
-                        )
+                        ExpenseLocalRepository(context).queueExpense(sessionId, driverId, vehicleId, total, categoryId = category.ifBlank { null }, paymentMethod = payment, odometer = startOdo.toDoubleOrNull(), notes = notes.ifBlank { null })
                     }
                 }
                 onSaved(id)
-            } catch (e: IllegalArgumentException) {
-                error = e.message ?: "Invalid entry"
-            } finally {
-                busy = false
-            }
+            } catch (e: IllegalArgumentException) { error = e.message ?: "Invalid entry" }
+            finally { busy = false }
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(entryType.name.replace('_', ' '))
         Text("Session: $sessionId")
-
         when (entryType) {
             EntryType.TRIP -> {
                 OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Start odometer") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(endOdo, { endOdo = it }, label = { Text("End odometer") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(fare, { fare = it }, label = { Text("Gross fare ₹") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(platform, { platform = it }, label = { Text("Platform") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(payment, { payment = it }, label = { Text("Payment method") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(additionalCharges, { additionalCharges = it }, label = { Text("Trip expense/additional charges ₹") }, modifier = Modifier.fillMaxWidth())
+                Box { OutlinedButton({ platformMenu = true }, Modifier.fillMaxWidth()) { Text("Platform: ${selectedPlatform?.name ?: "Loading..."}") }; DropdownMenu(platformMenu, { platformMenu = false }) { platforms.forEach { p -> DropdownMenuItem(text = { Text(p.name) }, onClick = { selectedPlatform = p; platformMenu = false }) } } }
+                Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth()) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { payment = p; paymentMenu = false }) } } }
                 OutlinedTextField(pickup, { pickup = it }, label = { Text("Pickup") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(dropoff, { dropoff = it }, label = { Text("Drop") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(status, { status = it }, label = { Text("Status") }, modifier = Modifier.fillMaxWidth())
+                Box { OutlinedButton({ statusMenu = true }, Modifier.fillMaxWidth()) { Text("Status: $status") }; DropdownMenu(statusMenu, { statusMenu = false }) { tripStatuses.forEach { s -> DropdownMenuItem(text = { Text(s) }, onClick = { status = s; statusMenu = false }) } } }
             }
             EntryType.FUEL -> {
                 OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Odometer") }, modifier = Modifier.fillMaxWidth())
@@ -127,16 +139,15 @@ fun TransactionEntryScreen(
                 OutlinedTextField(unit, { unit = it }, label = { Text("Unit") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(rate, { rate = it }, label = { Text("Rate ₹") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(amount, { amount = it }, label = { Text("Amount ₹") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(payment, { payment = it }, label = { Text("Payment method") }, modifier = Modifier.fillMaxWidth())
+                Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth()) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { payment = p; paymentMenu = false }) } } }
             }
             EntryType.EXPENSE -> {
                 OutlinedTextField(amount, { amount = it }, label = { Text("Amount ₹") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(category, { category = it }, label = { Text("Category ID (optional)") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(payment, { payment = it }, label = { Text("Payment method") }, modifier = Modifier.fillMaxWidth())
+                Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth()) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { payment = p; paymentMenu = false }) } } }
                 OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Odometer (optional)") }, modifier = Modifier.fillMaxWidth())
             }
         }
-
         OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth())
         if (error.isNotBlank()) Text(error)
         Button(enabled = !busy, onClick = { save() }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "SAVING…" else "SAVE OFFLINE") }
