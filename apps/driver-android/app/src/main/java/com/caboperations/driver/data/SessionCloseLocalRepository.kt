@@ -1,13 +1,11 @@
 package com.caboperations.driver.data
 
 import android.content.Context
-import android.net.Uri
 import androidx.room.withTransaction
 import com.caboperations.driver.ocr.OdometerOcrResult
 import com.caboperations.driver.ocr.OdometerVerifier
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import java.io.File
 import java.time.Instant
 import java.util.UUID
 
@@ -43,9 +41,7 @@ class SessionCloseLocalRepository(private val context: Context) {
         val transactionId = UUID.randomUUID().toString()
         val closedAt = Instant.now().toString()
         val fileId = closeOdometerFilePath?.let { UUID.randomUUID().toString() }
-        val filePath = closeOdometerFilePath?.let { Uri.parse(it).path }
-        require(fileId == null || !filePath.isNullOrBlank()) { "INVALID_CLOSE_PHOTO" }
-        if (filePath != null) require(File(filePath).exists()) { "CLOSE_PHOTO_MISSING" }
+        val filePath = closeOdometerFilePath?.let { LocalPhotoStore.persist(context, it) }
         val objectPath = fileId?.let { "sessions/$sessionId/close-odometer-$it.jpg" }
 
         val payload = buildJsonObject {
