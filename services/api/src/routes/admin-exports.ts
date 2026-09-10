@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
-import { getSupabaseAdmin } from '../db/supabase.js';
 import { adminAuthErrorResponse, requireAdmin } from '../auth/admin-auth.js';
+import { getSupabaseAdmin } from '../db/supabase.js';
 
 const datasets = {
   sessions: { table: 'sessions', columns: 'id,session_date,status,started_at,closed_at,start_odometer,close_odometer,driver_id,vehicle_id' },
@@ -13,6 +13,7 @@ const datasets = {
 
 type Dataset = keyof typeof datasets;
 type ExportConfig = { table: string; columns: string };
+const PAGE_SIZE = 1000;
 function csvValue(value: unknown): string { const text = value == null ? '' : String(value); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; }
 
 export async function registerAdminExportRoutes(app: FastifyInstance): Promise<void> {
@@ -22,9 +23,19 @@ export async function registerAdminExportRoutes(app: FastifyInstance): Promise<v
       const dataset = (request.params as { dataset: string }).dataset as Dataset;
       if (!(dataset in datasets)) return reply.code(404).send({ error: 'EXPORT_DATASET_NOT_FOUND' });
       const config = datasets[dataset] as ExportConfig;
-      const { data, error } = await getSupabaseAdmin().from(config.table).select(config.columns).limit(10000);
-      if (error) throw error;
-      const rows = Array.isArray(data) ? data as unknown[] : [];
+
+      const rows: unknown[] = [];
+      for (let offset = 0; ; offset += PAGE_SIZE) {
+        const { data, error } = await getSupabaseAdmin()
+          .from(config.table)
+          .select(config.columns)
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (error) throw error;
+        const page = Array.isArray(data) ? data as unknown[] : [];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+      }
+
       const headers = config.columns.split(',');
       const csv = [headers.join(','), ...rows.map(row => {
         const record = row !== null && typeof row === 'object' ? row as Record<string, unknown> : {};
