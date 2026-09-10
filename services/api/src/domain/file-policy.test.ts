@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAllowedUploadMimeType, isSafeObjectPath } from './file-policy.js';
+import { isAllowedUploadMimeType, isSafeObjectPath, sessionIdFromObjectPath } from './file-policy.js';
 
 describe('file upload policy', () => {
   it('accepts safe nested object paths', () => {
@@ -12,6 +12,13 @@ describe('file upload policy', () => {
     expect(isSafeObjectPath('/absolute/path.jpg')).toBe(false);
     expect(isSafeObjectPath('sessions//file.jpg')).toBe(false);
     expect(isSafeObjectPath('sessions\\file.jpg')).toBe(false);
+  });
+
+  it('extracts only valid session-scoped image paths', () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    expect(sessionIdFromObjectPath(`sessions/${sessionId}/start-odometer-22222222-2222-4222-8222-222222222222.jpg`)).toBe(sessionId);
+    expect(sessionIdFromObjectPath(`sessions/${sessionId}/receipt.txt`)).toBeNull();
+    expect(sessionIdFromObjectPath('drivers/anything/photo.jpg')).toBeNull();
   });
 
   it('limits uploads to supported content types', () => {
