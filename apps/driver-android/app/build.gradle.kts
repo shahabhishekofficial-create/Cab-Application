@@ -22,7 +22,12 @@ android {
         versionName = "0.1.0"
         buildConfigField("String", "API_BASE_URL", "\"${project.findProperty("API_BASE_URL") ?: "http://10.0.2.2:3000"}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${project.findProperty("SUPABASE_URL") ?: ""}\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${project.findProperty("SUPABASE_ANON_KEY") ?: ""}\"")
+        val publishableKey = project.findProperty("SUPABASE_PUBLISHABLE_KEY")
+            ?: project.findProperty("SUPABASE_ANON_KEY")
+            ?: ""
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"$publishableKey\"")
+        // Keep the generated constant name stable for existing auth code while accepting the current Supabase key name.
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$publishableKey\"")
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
