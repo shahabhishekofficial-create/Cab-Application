@@ -6,6 +6,7 @@ import androidx.work.WorkerParameters
 import com.caboperations.driver.BuildConfig
 import com.caboperations.driver.auth.AuthRepository
 import com.caboperations.driver.network.ApiClient
+import com.caboperations.driver.sync.SyncPolicy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -15,7 +16,7 @@ import java.io.File
 class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val dao = CabDatabase.get(applicationContext).pendingTransactionDao()
-        val pending = dao.pending()
+        val pending = dao.pending().take(SyncPolicy.MAX_BATCH_SIZE)
         if (pending.isEmpty()) return Result.success()
 
         val baseUrl = inputData.getString(KEY_BASE_URL) ?: BuildConfig.API_BASE_URL
@@ -29,7 +30,10 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
 
         for (item in pending) {
             val json = runCatching { Json.parseToJsonElement(item.payloadJson).jsonObject }.getOrNull()
-            if (json == null) { dao.markFailed(item.clientTransactionId, "INVALID_LOCAL_PAYLOAD"); continue }
+            if (json == null) {
+                dao.markFailed(item.clientTransactionId, "INVALID_LOCAL_PAYLOAD")
+                continue
+            }
             val driverId = json["driverId"]?.jsonPrimitive?.content
             val vehicleId = json["vehicleId"]?.jsonPrimitive?.content
 
@@ -39,18 +43,28 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                 val objectPath = json["objectPath"]?.jsonPrimitive?.content
                 val mimeType = json["mimeType"]?.jsonPrimitive?.content ?: "image/jpeg"
                 val capturedAt = json["capturedAt"]?.jsonPrimitive?.content
-                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) { dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD"); continue }
+                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) {
+                    dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD")
+                    continue
+                }
                 val file = File(filePath)
-                if (!file.exists()) { dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING"); continue }
+                if (!file.exists()) {
+                    dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING")
+                    continue
+                }
                 api.uploadFile("/v1/files", fileId, objectPath, mimeType, file.readBytes(), capturedAt)
             } else {
                 val path = when (item.type) {
                     TYPE_SESSION_START -> "/v1/sessions"
-                    TYPE_SESSION_CLOSE -> json["sessionId"]?.jsonPrimitive?.content?.let { "/v1/sessions/$it/close" } ?: run { dao.markFailed(item.clientTransactionId, "MISSING_SESSION_ID"); continue }
+                    TYPE_SESSION_CLOSE -> json["sessionId"]?.jsonPrimitive?.content?.let { "/v1/sessions/$it/close" }
                     TYPE_TRIP -> "/v1/trips"
                     TYPE_FUEL -> "/v1/fuel"
                     TYPE_EXPENSE -> "/v1/expenses"
-                    else -> { dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE"); continue }
+                    else -> null
+                }
+                if (path == null) {
+                    dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE")
+                    continue
                 }
                 api.post(path, item.payloadJson, driverId, vehicleId)
             }
@@ -67,7 +81,6 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                     token = refreshedToken
                     api = ApiClient(baseUrl, token)
                     authRetried = true
-                    // Re-submit the same idempotent transaction once with the refreshed token.
                     val retryResult = if (item.type == TYPE_FILE_UPLOAD) {
                         val filePath = json["localFilePath"]?.jsonPrimitive?.content
                         val fileId = json["fileId"]?.jsonPrimitive?.content
@@ -87,7 +100,10 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                         }
                         path?.let { api.post(it, item.payloadJson, driverId, vehicleId) }
                     }
-                    if (retryResult?.success == true) { dao.markSynced(item.clientTransactionId); continue }
+                    if (retryResult?.success == true) {
+                        dao.markSynced(item.clientTransactionId)
+                        continue
+                    }
                     if (retryResult?.retryable == true) retry = true
                     else dao.markFailed(item.clientTransactionId, retryResult?.error ?: "AUTH_REFRESH_FAILED")
                 } else {
