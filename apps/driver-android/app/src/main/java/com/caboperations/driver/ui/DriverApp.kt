@@ -27,7 +27,7 @@ fun DriverApp() {
     val context = LocalContext.current
     val identity = remember { DriverIdentity(context) }
     val auth = remember { AuthRepository(context) }
-    val driverContext = remember { DriverContextRepository(context) }
+    val driverContext = remember { DriverContextRepository() }
     val sessionState = remember { SessionStateRepository(context) }
     val localRepository = remember { SessionLocalRepository(context) }
     var currentSession by remember { mutableStateOf(sessionState.current()) }
@@ -36,16 +36,24 @@ fun DriverApp() {
     var entryType by remember { mutableStateOf("TRIP") }
     var status by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
+    var registration by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     fun refreshPending() { scope.launch { pendingCount = runCatching { CabDatabase.get(context).pendingTransactionDao().pendingCount() }.getOrDefault(0) } }
 
-    LaunchedEffect(Unit) {
-        val session = auth.session()
-        if (session == null) { screen = "LOGIN"; return@LaunchedEffect }
+    suspend fun loadAuthenticatedDriver(): Boolean {
+        val session = auth.session() ?: return false
         val result = withContext(Dispatchers.IO) { driverContext.load(session.accessToken) }
-        if (result.isSuccess) { displayName = result.getOrThrow().displayName; screen = "HOME" }
-        else { auth.logout(); screen = "LOGIN"; status = result.exceptionOrNull()?.message ?: "DRIVER_CONTEXT_FAILED" }
+        if (result.isFailure) return false
+        val c = result.getOrThrow()
+        identity.configure(c.driverId, c.vehicleId ?: return false)
+        displayName = c.displayName
+        registration = c.registrationNumber.orEmpty()
+        return true
+    }
+
+    LaunchedEffect(Unit) {
+        if (loadAuthenticatedDriver()) screen = "HOME" else { auth.logout(); identity.clearAssignment(); screen = "LOGIN" }
     }
     LaunchedEffect(screen) { refreshPending() }
 
@@ -53,12 +61,9 @@ fun DriverApp() {
         when {
             screen == "LOADING" -> Box(Modifier.fillMaxSize().padding(24.dp)) { CircularProgressIndicator() }
             screen == "LOGIN" -> LoginScreen(auth) {
-                val token = auth.session()?.accessToken
-                if (token == null) { status = "LOGIN_FAILED"; return@LoginScreen }
                 scope.launch {
-                    val result = withContext(Dispatchers.IO) { driverContext.load(token) }
-                    if (result.isSuccess) { displayName = result.getOrThrow().displayName; status = "Logged in • assignment loaded"; screen = "HOME" }
-                    else { auth.logout(); status = result.exceptionOrNull()?.message ?: "DRIVER_CONTEXT_FAILED" }
+                    if (loadAuthenticatedDriver()) { status = "Logged in • assignment loaded"; screen = "HOME" }
+                    else { auth.logout(); identity.clearAssignment(); status = "Login succeeded but no active driver assignment" }
                 }
             }
             screen == "START" && identity.driverId != null && identity.vehicleId != null -> SessionStartScreen(
@@ -83,11 +88,9 @@ fun DriverApp() {
             )
             else -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Cab Driver", style = MaterialTheme.typography.headlineMedium)
-                if (identity.driverId == null || identity.vehicleId == null) {
-                    Text("No active vehicle assignment. Contact admin.")
-                } else {
+                if (identity.driverId == null || identity.vehicleId == null) Text("No active vehicle assignment. Contact admin.") else {
                     if (displayName.isNotBlank()) Text(displayName)
-                    Text("Vehicle: ${identity.vehicleId}")
+                    if (registration.isNotBlank()) Text("Vehicle: $registration")
                     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("SESSION", style = MaterialTheme.typography.labelLarge); Text(if (currentSession != null) "OPEN" else "NOT STARTED", style = MaterialTheme.typography.titleLarge); currentSession?.let { Text("Session: ${it.sessionId}") }; Text("Pending sync: $pendingCount") } }
                     if (currentSession == null) Button({ screen = "START" }, Modifier.fillMaxWidth()) { Text("START SESSION") } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { Button({ entryType = "TRIP"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("ADD TRIP") }; Button({ entryType = "FUEL"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("FUEL") } }
