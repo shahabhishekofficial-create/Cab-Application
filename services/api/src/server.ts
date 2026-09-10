@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { z } from 'zod';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerTransactionRoutes } from './routes/transactions.js';
+import { registerSyncRoutes } from './routes/sync.js';
 
 const app = Fastify({ logger: true });
 
@@ -21,6 +22,7 @@ app.post('/v1/sync/validate', async (request, reply) => {
 
 await registerSessionRoutes(app);
 await registerTransactionRoutes(app);
+await registerSyncRoutes(app);
 
 const port = Number(process.env.PORT ?? 3000);
 app.listen({ port, host: '0.0.0.0' }).catch((error) => {
