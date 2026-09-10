@@ -7,6 +7,12 @@ import java.nio.charset.StandardCharsets
 class ApiClient(private val baseUrl: String) {
     data class Result(val success: Boolean, val retryable: Boolean, val error: String? = null)
 
+    private fun resultForCode(code: Int): Result = when {
+        code in 200..299 -> Result(true, false)
+        code == 408 || code == 429 || code >= 500 -> Result(false, true, "HTTP_$code")
+        else -> Result(false, false, "HTTP_$code")
+    }
+
     fun post(path: String, body: String, driverId: String?, vehicleId: String?): Result {
         val connection = (URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -19,12 +25,28 @@ class ApiClient(private val baseUrl: String) {
         }
         return try {
             connection.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
-            val code = connection.responseCode
-            when {
-                code in 200..299 -> Result(true, false)
-                code == 408 || code == 429 || code >= 500 -> Result(false, true, "HTTP_$code")
-                else -> Result(false, false, "HTTP_$code")
-            }
+            resultForCode(connection.responseCode)
+        } catch (e: Exception) {
+            Result(false, true, e.message ?: "NETWORK_ERROR")
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun uploadFile(path: String, fileId: String, objectPath: String, mimeType: String, bytes: ByteArray, capturedAt: String?): Result {
+        val connection = (URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 10_000
+            readTimeout = 30_000
+            doOutput = true
+            setRequestProperty("Content-Type", mimeType)
+            setRequestProperty("x-file-id", fileId)
+            setRequestProperty("x-object-path", objectPath)
+            capturedAt?.let { setRequestProperty("x-captured-at", it) }
+        }
+        return try {
+            connection.outputStream.use { it.write(bytes) }
+            resultForCode(connection.responseCode)
         } catch (e: Exception) {
             Result(false, true, e.message ?: "NETWORK_ERROR")
         } finally {
