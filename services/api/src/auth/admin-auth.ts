@@ -18,7 +18,43 @@ export async function requireAdmin(request: FastifyRequest): Promise<Authenticat
     .eq('id', authData.user.id)
     .maybeSingle();
   if (error) throw error;
-  if (!data || !data.is_active) throw new Error('ADMIN_PROFILE_NOT_FOUND');
+
+  if (!data) {
+    const { count, error: countError } = await supabase
+      .from('app_users')
+      .select('id', { count: 'exact', head: true });
+    if (countError) throw countError;
+
+    // A fresh installation has no application users yet. The first authenticated
+    // admin login becomes the owner so the system can be bootstrapped without
+    // direct database/auth-admin access. The unique auth user id makes this safe
+    // against duplicate profile creation.
+    if (count === 0) {
+      const displayName =
+        String(authData.user.user_metadata?.full_name ?? authData.user.user_metadata?.name ?? authData.user.email ?? 'Owner').trim() || 'Owner';
+      const { error: insertError } = await supabase.from('app_users').insert({
+        id: authData.user.id,
+        role: 'OWNER',
+        display_name: displayName,
+        phone: authData.user.phone ?? null,
+        is_active: true,
+      });
+      if (insertError && insertError.code !== '23505') throw insertError;
+
+      const { data: bootstrapped, error: bootstrapError } = await supabase
+        .from('app_users')
+        .select('role,is_active')
+        .eq('id', authData.user.id)
+        .maybeSingle();
+      if (bootstrapError) throw bootstrapError;
+      if (bootstrapped?.is_active && (bootstrapped.role === 'OWNER' || bootstrapped.role === 'MANAGER')) {
+        return { userId: authData.user.id, role: bootstrapped.role };
+      }
+    }
+    throw new Error('ADMIN_PROFILE_NOT_FOUND');
+  }
+
+  if (!data.is_active) throw new Error('ADMIN_PROFILE_NOT_FOUND');
   if (data.role !== 'OWNER' && data.role !== 'MANAGER') throw new Error('ADMIN_FORBIDDEN');
 
   return { userId: authData.user.id, role: data.role };
