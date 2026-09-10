@@ -7,11 +7,18 @@ import { authErrorResponse, requireDriver } from '../auth/driver-auth.js';
 
 const syncItemSchema = z.object({
   type: z.enum(['SESSION_START', 'TRIP', 'FUEL', 'EXPENSE', 'SESSION_CLOSE']),
-  payload: z.unknown(),
+  payload: z.record(z.string(), z.unknown()),
 });
 
 const syncSchema = z.object({
   transactions: z.array(syncItemSchema).min(1).max(100),
+}).superRefine((value, ctx) => {
+  const ids = value.transactions.map((item) => item.payload.clientTransactionId).filter((id): id is string => typeof id === 'string');
+  const seen = new Set<string>();
+  ids.forEach((id, index) => {
+    if (seen.has(id)) ctx.addIssue({ code: 'custom', path: ['transactions', index, 'payload', 'clientTransactionId'], message: 'Duplicate client transaction ID in sync batch' });
+    seen.add(id);
+  });
 });
 
 export async function registerSyncRoutes(app: FastifyInstance) {
@@ -30,6 +37,7 @@ export async function registerSyncRoutes(app: FastifyInstance) {
 
     const results = [];
     for (const item of parsed.data.transactions) {
+      const clientTransactionId = typeof item.payload.clientTransactionId === 'string' ? item.payload.clientTransactionId : null;
       try {
         let result: Record<string, unknown>;
         switch (item.type) {
@@ -59,9 +67,9 @@ export async function registerSyncRoutes(app: FastifyInstance) {
             break;
           }
         }
-        results.push({ type: item.type, accepted: true, result });
+        results.push({ type: item.type, clientTransactionId, accepted: true, result });
       } catch (error) {
-        results.push({ type: item.type, accepted: false, error: String((error as Error)?.message ?? 'SYNC_FAILED') });
+        results.push({ type: item.type, clientTransactionId, accepted: false, error: String((error as Error)?.message ?? 'SYNC_FAILED') });
       }
     }
 
