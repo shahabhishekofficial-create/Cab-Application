@@ -1,5 +1,6 @@
 package com.caboperations.driver.data
 
+import androidx.room.withTransaction
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.Instant
@@ -25,6 +26,7 @@ class TripLocalRepository(private val context: android.content.Context) {
         endedAt: String? = null,
         notes: String? = null
     ): String {
+        require(startOdometer >= 0) { "Start odometer cannot be negative" }
         require(endOdometer == null || endOdometer >= startOdometer) { "End odometer cannot be less than start odometer" }
         require(grossFare >= 0) { "Gross fare cannot be negative" }
         require(additionalCharges >= 0) { "Additional charges cannot be negative" }
@@ -49,12 +51,10 @@ class TripLocalRepository(private val context: android.content.Context) {
             notes?.let { put("notes", it) }
         }.toString()
 
-        db.pendingTransactionDao().insert(
-            PendingTransaction(id, "TRIP", payload, System.currentTimeMillis())
-        )
-        db.localTripDao().insert(
-            LocalTrip(id, sessionId, startOdometer, endOdometer, grossFare, status, false)
-        )
+        db.withTransaction {
+            db.pendingTransactionDao().insert(PendingTransaction(id, "TRIP", payload, System.currentTimeMillis()))
+            db.localTripDao().insert(LocalTrip(id, sessionId, startOdometer, endOdometer, grossFare, status, false))
+        }
         return id
     }
 }
