@@ -36,6 +36,11 @@ export const fuelSchema = z.object({
   paymentMethod: z.enum(['CASH','UPI','CARD','BANK','OTHER']).nullable().optional(), receiptFileId: uuidSchema.nullable().optional(),
   latitude: z.number().gte(-90).lte(90).nullable().optional(), longitude: z.number().gte(-180).lte(180).nullable().optional(),
   gpsAccuracyM: z.number().finite().nonnegative().nullable().optional(), recordedAt: z.string().datetime(), notes: z.string().max(2000).nullable().optional(),
+}).superRefine((value, ctx) => {
+  const expectedAmount = value.quantity * value.rate;
+  if (Math.abs(value.amount - expectedAmount) > 0.01) {
+    ctx.addIssue({ code: 'custom', path: ['amount'], message: 'Fuel amount must equal quantity × rate within ₹0.01' });
+  }
 });
 
 export const expenseSchema = z.object({
@@ -47,7 +52,6 @@ export const expenseSchema = z.object({
 
 export const closeSessionSchema = z.object({
   clientTransactionId: uuidSchema, sessionId: uuidSchema, closedAt: z.string().datetime(), closeOdometer: z.number().finite().nonnegative(),
-  closeLat: z.number().gte(-90).lte(90).nullable().optional(), closeLng: z.number().gte(-180).lte(180).nullable().optional(),
-  closeAccuracyM: z.number().finite().nonnegative().nullable().optional(), closeGpsAt: z.string().datetime().nullable().optional(), closeOdometerFileId: uuidSchema.nullable().optional(),
+  closeLat: z.number().gte(-90).lte(90).nullable().optional(), closeLng: z.number().gte(-180).lte(180).nullable().optional(), closeAccuracyM: z.number().finite().nonnegative().nullable().optional(), closeGpsAt: z.string().datetime().nullable().optional(), closeOdometerFileId: uuidSchema.nullable().optional(),
   reportedTripCount: z.number().int().nonnegative(), reportedIncome: z.number().finite().nonnegative(), ...ocrFields, notes: z.string().max(2000).nullable().optional(),
 });
