@@ -1,12 +1,12 @@
 package com.caboperations.driver.data
 
 import android.content.Context
-import androidx.room.Database
-import androidx.room.Room
-import androidx.room.RoomDatabase
 import androidx.room.Dao
+import androidx.room.Database
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Room
+import androidx.room.RoomDatabase
 
 @Dao
 interface PendingTransactionDao {
@@ -21,6 +21,18 @@ interface PendingTransactionDao {
     suspend fun pendingCount(): Int
 }
 
+@Dao
+interface LocalSessionDao {
+    @Insert
+    fun insert(session: LocalSession)
+
+    @Query("SELECT * FROM sessions WHERE sessionId = :sessionId LIMIT 1")
+    suspend fun find(sessionId: String): LocalSession?
+
+    @Query("SELECT * FROM sessions WHERE driverId = :driverId AND vehicleId = :vehicleId AND status = 'OPEN' LIMIT 1")
+    suspend fun currentOpen(driverId: String, vehicleId: String): LocalSession?
+}
+
 @Database(
     entities = [PendingTransaction::class, LocalSession::class, LocalTrip::class, LocalFuel::class, LocalExpense::class],
     version = 1,
@@ -28,6 +40,7 @@ interface PendingTransactionDao {
 )
 abstract class CabDatabase : RoomDatabase() {
     abstract fun pendingTransactionDao(): PendingTransactionDao
+    abstract fun localSessionDao(): LocalSessionDao
 
     companion object {
         @Volatile private var INSTANCE: CabDatabase? = null
