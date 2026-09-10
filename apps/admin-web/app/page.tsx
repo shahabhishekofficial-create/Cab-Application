@@ -3,15 +3,18 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../lib/supabase-browser';
+import { getSupabaseBrowserClient } from '../lib/supabase-browser';
 
 const cards = [['Revenue', '₹0'], ['Trips', '0'], ['Running KM', '0 km'], ['Fuel Cost', '₹0'], ['Expenses', '₹0'], ['Net Operating Result', '₹0']];
 
 export default function Dashboard() {
   const router = useRouter();
   const [email, setEmail] = useState('');
-  useEffect(() => { supabase.auth.getSession().then(({ data: { session } }) => { if (!session) router.replace('/login'); else setEmail(session.user.email ?? ''); }); }, [router]);
-  async function signOut() { await supabase.auth.signOut(); router.replace('/login'); }
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  useEffect(() => { getSupabaseBrowserClient().auth.getSession().then(({ data: { session } }) => { if (!session) router.replace('/login'); else setEmail(session.user.email ?? ''); }).finally(() => setCheckingAuth(false)); }, [router]);
+  async function signOut() { await getSupabaseBrowserClient().auth.signOut(); router.replace('/login'); }
+
+  if (checkingAuth) return <main style={{ padding: 32, fontFamily: 'system-ui' }}>Checking admin session…</main>;
 
   return (
     <main style={{ maxWidth: 1100, margin: '0 auto', padding: 32, fontFamily: 'system-ui' }}>
