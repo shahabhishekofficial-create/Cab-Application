@@ -26,6 +26,8 @@ import com.caboperations.driver.data.SessionLocalRepository
 import com.caboperations.driver.data.SessionStateRepository
 import com.caboperations.driver.data.SyncScheduler
 import com.caboperations.driver.location.LocationSnapshot
+import com.caboperations.driver.ocr.OdometerOcrResult
+import com.caboperations.driver.ocr.OdometerVerifier
 import java.time.Instant
 
 private const val API_BASE_URL = "http://10.0.2.2:3000"
@@ -53,18 +55,18 @@ fun DriverApp() {
             SessionStartScreen(
                 driverId = identity.driverId!!,
                 vehicleId = identity.vehicleId!!,
-                onStart = { odo: Double, gps: LocationSnapshot, photo: String ->
+                onStart = { odo: Double, gps: LocationSnapshot, photo: String, ocr: OdometerOcrResult, decision: OdometerVerifier.Decision ->
                     val driverId = identity.driverId!!
                     val vehicleId = identity.vehicleId!!
                     val sessionId = localRepository.queueStartSession(
                         driverId, vehicleId, identity.deviceId, odo,
                         gps.latitude, gps.longitude, gps.accuracyMeters,
-                        Instant.ofEpochMilli(gps.capturedAtEpochMs).toString(), photo
+                        Instant.ofEpochMilli(gps.capturedAtEpochMs).toString(), photo, ocr, decision
                     )
                     currentSession = sessionState.open(sessionId, driverId, vehicleId, odo)
                     refreshPending()
                     SyncScheduler.enqueue(context, API_BASE_URL)
-                    status = "Session saved locally • photo queued • pending sync"
+                    status = if (decision == OdometerVerifier.Decision.PASS) "Session saved locally • OCR PASS • pending sync" else "Session saved locally • OCR REVIEW • pending sync"
                     screen = "HOME"
                 },
                 onCancel = { screen = "HOME" }
@@ -76,62 +78,30 @@ fun DriverApp() {
                 vehicleId = identity.vehicleId!!,
                 startOdometer = currentSession!!.startOdometer,
                 onClosed = {
-                    sessionState.close()
-                    currentSession = null
+                    sessionState.close(); currentSession = null
                     status = "Session closed locally • photo queued • pending sync"
-                    refreshPending()
-                    SyncScheduler.enqueue(context, API_BASE_URL)
-                    screen = "HOME"
+                    refreshPending(); SyncScheduler.enqueue(context, API_BASE_URL); screen = "HOME"
                 },
                 onCancel = { screen = "HOME" }
             )
         } else if (screen == "ENTRY" && currentSession != null && identity.driverId != null && identity.vehicleId != null) {
             TransactionEntryScreen(
-                type = entryType,
-                sessionId = currentSession!!.sessionId,
-                driverId = identity.driverId!!,
-                vehicleId = identity.vehicleId!!,
-                onSaved = {
-                    status = "${entryType.replaceFirstChar { it.uppercase() }} saved offline • pending sync"
-                    refreshPending()
-                    SyncScheduler.enqueue(context, API_BASE_URL)
-                    screen = "HOME"
-                },
+                type = entryType, sessionId = currentSession!!.sessionId,
+                driverId = identity.driverId!!, vehicleId = identity.vehicleId!!,
+                onSaved = { status = "${entryType.replaceFirstChar { it.uppercase() }} saved offline • pending sync"; refreshPending(); SyncScheduler.enqueue(context, API_BASE_URL); screen = "HOME" },
                 onCancel = { screen = "HOME" }
             )
         } else {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+            Column(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Cab Driver", style = MaterialTheme.typography.headlineMedium)
                 if (identity.driverId == null || identity.vehicleId == null) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("DRIVER SETUP", style = MaterialTheme.typography.labelLarge)
-                            Text("Development identity is not configured.")
-                            Text("A driver ID and vehicle ID must be assigned before a session can start.")
-                        }
-                    }
+                    Card(modifier = Modifier.fillMaxWidth()) { Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("DRIVER SETUP", style = MaterialTheme.typography.labelLarge); Text("Development identity is not configured."); Text("A driver ID and vehicle ID must be assigned before a session can start.") } }
                 } else {
-                    Text("Driver: ${identity.driverId}")
-                    Text("Vehicle: ${identity.vehicleId}")
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("SESSION", style = MaterialTheme.typography.labelLarge)
-                            Text(if (currentSession != null) "OPEN" else "NOT STARTED", style = MaterialTheme.typography.titleLarge)
-                            currentSession?.let { Text("Session: ${it.sessionId}") }
-                            Text("Start odometer: ${currentSession?.startOdometer ?: "—"}")
-                            Text("Pending sync: $pendingCount")
-                        }
-                    }
-                    if (currentSession == null) {
-                        Button(onClick = { screen = "START" }, modifier = Modifier.fillMaxWidth()) { Text("START SESSION") }
-                    } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(onClick = { entryType = "TRIP"; screen = "ENTRY" }, modifier = Modifier.weight(1f)) { Text("ADD TRIP") }
-                            Button(onClick = { entryType = "FUEL"; screen = "ENTRY" }, modifier = Modifier.weight(1f)) { Text("FUEL") }
-                        }
+                    Text("Driver: ${identity.driverId}"); Text("Vehicle: ${identity.vehicleId}")
+                    Card(modifier = Modifier.fillMaxWidth()) { Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("SESSION", style = MaterialTheme.typography.labelLarge); Text(if (currentSession != null) "OPEN" else "NOT STARTED", style = MaterialTheme.typography.titleLarge); currentSession?.let { Text("Session: ${it.sessionId}") }; Text("Start odometer: ${currentSession?.startOdometer ?: "—"}"); Text("Pending sync: $pendingCount") } }
+                    if (currentSession == null) Button(onClick = { screen = "START" }, modifier = Modifier.fillMaxWidth()) { Text("START SESSION") }
+                    else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { Button(onClick = { entryType = "TRIP"; screen = "ENTRY" }, modifier = Modifier.weight(1f)) { Text("ADD TRIP") }; Button(onClick = { entryType = "FUEL"; screen = "ENTRY" }, modifier = Modifier.weight(1f)) { Text("FUEL") } }
                         OutlinedButton(onClick = { entryType = "EXPENSE"; screen = "ENTRY" }, modifier = Modifier.fillMaxWidth()) { Text("EXPENSE") }
                         OutlinedButton(onClick = { screen = "CLOSE" }, modifier = Modifier.fillMaxWidth()) { Text("CLOSE SESSION") }
                     }
