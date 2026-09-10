@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from './supabase.js';
 
 export interface StartSessionRecord {
   clientTransactionId: string;
+  sessionId: string;
   driverId: string;
   vehicleId: string;
   deviceId?: string | null;
@@ -34,6 +35,7 @@ export interface CloseSessionRecord {
 export async function startSession(input: StartSessionRecord): Promise<Record<string, unknown>> {
   const { data, error } = await getSupabaseAdmin().rpc('start_session', {
     p_client_transaction_id: input.clientTransactionId,
+    p_session_id: input.sessionId,
     p_driver_id: input.driverId,
     p_vehicle_id: input.vehicleId,
     p_device_id: input.deviceId ?? null,
