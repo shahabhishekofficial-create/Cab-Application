@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabase-browser';
+import { getSupabaseBrowserClient } from '../../lib/supabase-browser';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,14 +15,19 @@ export default function LoginPage() {
     event.preventDefault();
     setBusy(true);
     setError('');
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (signInError) {
-      setError(signInError.message);
+    try {
+      const { error: signInError } = await getSupabaseBrowserClient().auth.signInWithPassword({ email: email.trim(), password });
+      if (signInError) {
+        setError(signInError.message);
+        return;
+      }
+      router.replace('/');
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to sign in');
+    } finally {
       setBusy(false);
-      return;
     }
-    router.replace('/');
-    router.refresh();
   }
 
   return (
