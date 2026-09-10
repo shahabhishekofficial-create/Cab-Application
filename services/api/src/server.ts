@@ -10,6 +10,7 @@ import { registerExpenseCategoryRoutes } from './routes/expense-categories.js';
 import { registerAdminSessionRoutes } from './routes/admin-sessions.js';
 import { registerAdminMetricsRoutes } from './routes/admin-metrics.js';
 import { registerAdminExportRoutes } from './routes/admin-exports.js';
+import { registerAdminDriverRoutes } from './routes/admin-drivers.js';
 
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 * 1024 });
 
@@ -40,6 +41,7 @@ await registerExpenseCategoryRoutes(app);
 await registerAdminSessionRoutes(app);
 await registerAdminMetricsRoutes(app);
 await registerAdminExportRoutes(app);
+await registerAdminDriverRoutes(app);
 await registerSessionRoutes(app);
 await registerTransactionRoutes(app);
 await registerSyncRoutes(app);
