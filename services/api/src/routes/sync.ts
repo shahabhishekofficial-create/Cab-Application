@@ -22,6 +22,7 @@ const syncSchema = z.object({
 });
 
 function syncErrorCode(error: unknown): string {
+  if (error instanceof z.ZodError) return 'VALIDATION_ERROR';
   const message = error instanceof Error ? error.message : String(error);
   const known = [
     'DRIVER_VEHICLE_NOT_ASSIGNED', 'VEHICLE_NOT_ACTIVE', 'SESSION_ALREADY_OPEN',
