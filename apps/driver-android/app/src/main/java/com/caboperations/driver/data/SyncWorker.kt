@@ -8,16 +8,15 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** Durable offline sync. Each client transaction is sent independently so one bad item
- * cannot block the rest of the queue. Server-side clientTransactionId makes retries safe. */
+/** Durable offline sync. Session creation is a dependency: transactions must not be
+ * sent when their session start was rejected. Client transaction IDs make retries safe. */
 class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val dao = CabDatabase.get(applicationContext).pendingTransactionDao()
         val pending = dao.pending()
         if (pending.isEmpty()) return Result.success()
 
-        val baseUrl = inputData.getString(KEY_BASE_URL)
-            ?: return Result.failure()
+        val baseUrl = inputData.getString(KEY_BASE_URL) ?: return Result.failure()
         val api = ApiClient(baseUrl)
         var retry = false
 
@@ -50,6 +49,9 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
             } else {
                 dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_FAILED")
                 if (result.retryable) retry = true
+                // A transaction cannot be validly persisted without its session start.
+                // Stop this pass so dependent items remain queued for the next attempt.
+                if (item.type == TYPE_SESSION_START) break
             }
         }
         return if (retry) Result.retry() else Result.success()
