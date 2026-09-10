@@ -35,14 +35,9 @@ export default function Dashboard() {
   async function signOut() { await supabase.auth.signOut(); window.location.replace('/login'); }
 
   const cards = metrics ? [
-    ['Sessions', String(metrics.sessions)],
-    ['Revenue', `₹${metrics.revenue.toFixed(2)}`],
-    ['Trips', String(metrics.trips)],
-    ['Running KM', `${metrics.runningKm.toFixed(1)} km`],
-    ['Fuel Cost', `₹${metrics.fuelCost.toFixed(2)}`],
-    ['Expenses', `₹${metrics.expenses.toFixed(2)}`],
-    ['Net Operating Result', `₹${metrics.netOperatingResult.toFixed(2)}`],
-    ['Open Sessions', String(metrics.openSessions)],
+    ['Sessions', String(metrics.sessions)], ['Revenue', `₹${metrics.revenue.toFixed(2)}`], ['Trips', String(metrics.trips)],
+    ['Running KM', `${metrics.runningKm.toFixed(1)} km`], ['Fuel Cost', `₹${metrics.fuelCost.toFixed(2)}`], ['Expenses', `₹${metrics.expenses.toFixed(2)}`],
+    ['Net Operating Result', `₹${metrics.netOperatingResult.toFixed(2)}`], ['Open Sessions', String(metrics.openSessions)],
   ] : [];
 
   if (checkingAuth) return <main style={{ padding: 32, fontFamily: 'system-ui' }}>Checking admin session…</main>;
@@ -56,7 +51,11 @@ export default function Dashboard() {
       {loading && <p>Loading live metrics…</p>}
       {error && <p role="alert">Dashboard data unavailable: {error}</p>}
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 16 }}>{cards.map(([label, value]) => <article key={label} style={{ border: '1px solid #ddd', borderRadius: 12, padding: 20 }}><div style={{ opacity: .65 }}>{label}</div><strong style={{ display: 'block', fontSize: 26, marginTop: 8 }}>{value}</strong></article>)}</section>
-      <section style={{ marginTop: 32, display:'flex', gap:12, flexWrap:'wrap' }}><Link href="/sessions" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Sessions</Link><Link href="/exports" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Exports</Link></section>
+      <section style={{ marginTop: 32, display:'flex', gap:12, flexWrap:'wrap' }}>
+        <Link href="/drivers" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Drivers & Vehicles</Link>
+        <Link href="/sessions" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Sessions</Link>
+        <Link href="/exports" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Exports</Link>
+      </section>
     </main>
   );
 }
