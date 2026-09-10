@@ -2,6 +2,13 @@ import { z } from 'zod';
 
 export const uuidSchema = z.string().uuid();
 
+const ocrFields = {
+  ocrReading: z.number().finite().nonnegative().nullable().optional(),
+  ocrConfidence: z.number().finite().gte(0).lte(1).nullable().optional(),
+  ocrDecision: z.enum(['PASS', 'REVIEW', 'FAIL']).nullable().optional(),
+  ocrRawText: z.string().max(5000).nullable().optional(),
+};
+
 export const startSessionSchema = z.object({
   clientTransactionId: uuidSchema,
   sessionId: uuidSchema,
@@ -15,6 +22,7 @@ export const startSessionSchema = z.object({
   startAccuracyM: z.number().finite().nonnegative().nullable().optional(),
   startGpsAt: z.string().datetime().nullable().optional(),
   startOdometerFileId: uuidSchema.nullable().optional(),
+  ...ocrFields,
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -92,5 +100,6 @@ export const closeSessionSchema = z.object({
   closeOdometerFileId: uuidSchema.nullable().optional(),
   reportedTripCount: z.number().int().nonnegative(),
   reportedIncome: z.number().finite().nonnegative(),
+  ...ocrFields,
   notes: z.string().max(2000).nullable().optional(),
 });
