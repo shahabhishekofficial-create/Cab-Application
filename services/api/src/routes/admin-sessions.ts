@@ -29,9 +29,9 @@ export async function registerAdminSessionRoutes(app: FastifyInstance): Promise<
       if (query.from) builder = builder.gte('session_date', query.from);
       if (query.to) builder = builder.lte('session_date', query.to);
 
-      const { data, error } = await builder;
+      const { data, error, count } = await builder;
       if (error) throw error;
-      return { sessions: data ?? [], total: data?.length ?? 0, limit, offset };
+      return { sessions: data ?? [], total: count ?? 0, limit, offset };
     } catch (error) {
       const mapped = adminAuthErrorResponse(error);
       if (mapped) return reply.code(mapped.status).send(mapped.body);
