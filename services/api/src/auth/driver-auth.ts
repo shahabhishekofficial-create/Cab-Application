@@ -12,26 +12,16 @@ export async function requireDriver(request: FastifyRequest): Promise<Authentica
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
   if (authError || !authData.user) throw new Error('INVALID_AUTH_TOKEN');
 
-  const { data: driver, error: driverError } = await supabase
-    .from('drivers').select('id, app_users!inner(is_active)').eq('user_id', authData.user.id).eq('app_users.is_active', true).maybeSingle();
-  if (driverError) throw driverError;
-  if (!driver) throw new Error('DRIVER_PROFILE_NOT_FOUND');
+  const { data, error } = await supabase.rpc('get_my_driver_context', { p_user_id: authData.user.id });
+  if (error) throw error;
+  if (!data?.driverId) throw new Error('DRIVER_PROFILE_NOT_FOUND');
+  if (!data?.vehicleId) throw new Error('NO_ACTIVE_VEHICLE_ASSIGNMENT');
 
-  const { data: assignment, error: assignmentError } = await supabase
-    .from('driver_vehicle_assignments').select('vehicle_id, vehicles!inner(status)').eq('driver_id', driver.id).is('assigned_to', null).eq('vehicles.status', 'ACTIVE').order('assigned_from', { ascending: false }).limit(1).maybeSingle();
-  if (assignmentError) throw assignmentError;
-  if (!assignment) throw new Error('NO_ACTIVE_VEHICLE_ASSIGNMENT');
-
-  return { userId: authData.user.id, driverId: driver.id, vehicleId: assignment.vehicle_id };
+  return { userId: authData.user.id, driverId: data.driverId, vehicleId: data.vehicleId };
 }
 
 export function authErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } | null {
   const message = String(error instanceof Error ? error.message : error);
-  const known: Record<string, number> = {
-    AUTH_REQUIRED: 401,
-    INVALID_AUTH_TOKEN: 401,
-    DRIVER_PROFILE_NOT_FOUND: 403,
-    NO_ACTIVE_VEHICLE_ASSIGNMENT: 403,
-  };
+  const known: Record<string, number> = { AUTH_REQUIRED: 401, INVALID_AUTH_TOKEN: 401, DRIVER_PROFILE_NOT_FOUND: 403, NO_ACTIVE_VEHICLE_ASSIGNMENT: 403 };
   return known[message] ? { status: known[message], body: { error: message } } : null;
 }
