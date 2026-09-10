@@ -53,3 +53,23 @@ jobs:
           cache-dependency-path: apps/admin-web/package.json
       - run: npm install
       - run: npm run build
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/driver-android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Validate Android Gradle project
+        run: |
+          if [ ! -f gradlew ]; then
+            echo 'Gradle wrapper executable is not yet committed; Android build remains gated.'
+            exit 0
+          fi
+          chmod +x gradlew
+          ./gradlew assembleDebug
