@@ -22,6 +22,10 @@ export default function Dashboard() {
           </article>
         ))}
       </section>
+      <section style={{ marginTop: 32, display:'flex', gap:12, flexWrap:'wrap' }}>
+        <a href="/sessions" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Sessions</a>
+        <a href="/exports" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Exports</a>
+      </section>
     </main>
   );
 }
