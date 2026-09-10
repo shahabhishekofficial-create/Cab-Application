@@ -14,6 +14,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.caboperations.driver.auth.AuthRepository
@@ -23,6 +24,7 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
+    val context = LocalContext.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -37,10 +39,9 @@ fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
                 error = ""
                 auth.googleAuthorizeUrl().onSuccess { url ->
                     runCatching {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                             addCategory(Intent.CATEGORY_BROWSABLE)
-                        }
-                        val context = androidx.compose.ui.platform.LocalContext.current
+                        })
                     }.onFailure { error = it.message ?: "GOOGLE_LOGIN_FAILED" }
                 }.onFailure { error = it.message ?: "GOOGLE_LOGIN_FAILED" }
             },
