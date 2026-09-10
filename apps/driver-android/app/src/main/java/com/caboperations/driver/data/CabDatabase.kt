@@ -7,11 +7,12 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.caboperations.driver.sync.SyncPolicy
 
 @Dao
 interface PendingTransactionDao {
     @Insert suspend fun insert(transaction: PendingTransaction)
-    @Query("SELECT * FROM pending_transactions WHERE synced = 0 ORDER BY CASE type WHEN 'FILE_UPLOAD' THEN 0 WHEN 'SESSION_START' THEN 1 WHEN 'TRIP' THEN 2 WHEN 'FUEL' THEN 3 WHEN 'EXPENSE' THEN 4 WHEN 'SESSION_CLOSE' THEN 5 ELSE 6 END, createdAt")
+    @Query("SELECT * FROM pending_transactions WHERE synced = 0 ORDER BY CASE type WHEN 'FILE_UPLOAD' THEN 0 WHEN 'SESSION_START' THEN 1 WHEN 'TRIP' THEN 2 WHEN 'FUEL' THEN 3 WHEN 'EXPENSE' THEN 4 WHEN 'SESSION_CLOSE' THEN 5 ELSE 6 END, createdAt LIMIT ${SyncPolicy.MAX_BATCH_SIZE}")
     suspend fun pending(): List<PendingTransaction>
     @Query("UPDATE pending_transactions SET synced = 1, lastError = NULL WHERE clientTransactionId = :id")
     suspend fun markSynced(id: String)
