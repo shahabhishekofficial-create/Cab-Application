@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { expenseSchema, fuelSchema, startSessionSchema, tripSchema } from './schemas.js';
+import { closeSessionSchema, expenseSchema, fuelSchema, startSessionSchema, tripSchema } from './schemas.js';
 
 const ids = {
   clientTransactionId: '11111111-1111-4111-8111-111111111111',
@@ -11,20 +11,12 @@ const ids = {
 describe('session start schema', () => {
   it('requires the stable client-generated session ID', () => {
     const { sessionId: _, ...withoutSessionId } = ids;
-    const result = startSessionSchema.safeParse({
-      ...withoutSessionId,
-      startedAt: '2026-09-10T00:00:00.000Z',
-      startOdometer: 100,
-    });
+    const result = startSessionSchema.safeParse({ ...withoutSessionId, startedAt: '2026-09-10T00:00:00.000Z', startOdometer: 100 });
     expect(result.success).toBe(false);
   });
 
   it('accepts a valid stable session ID', () => {
-    const result = startSessionSchema.safeParse({
-      ...ids,
-      startedAt: '2026-09-10T00:00:00.000Z',
-      startOdometer: 100,
-    });
+    const result = startSessionSchema.safeParse({ ...ids, startedAt: '2026-09-10T00:00:00.000Z', startOdometer: 100 });
     expect(result.success).toBe(true);
   });
 });
@@ -32,6 +24,11 @@ describe('session start schema', () => {
 describe('transaction schemas', () => {
   it('rejects a backward trip odometer', () => {
     const result = tripSchema.safeParse({ ...ids, startedAt: '2026-09-10T00:00:00.000Z', startOdometer: 100, endOdometer: 99, grossFare: 100, status: 'COMPLETED' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects trip end time before start time', () => {
+    const result = tripSchema.safeParse({ ...ids, startedAt: '2026-09-10T10:00:00.000Z', endedAt: '2026-09-10T09:59:00.000Z', startOdometer: 100, endOdometer: 110, grossFare: 100, status: 'COMPLETED' });
     expect(result.success).toBe(false);
   });
 
@@ -47,6 +44,18 @@ describe('transaction schemas', () => {
 
   it('accepts an expense without optional proof or GPS', () => {
     const result = expenseSchema.safeParse({ ...ids, amount: 250, recordedAt: '2026-09-10T00:00:00.000Z' });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('session close schema', () => {
+  it('rejects negative reported trip count', () => {
+    const result = closeSessionSchema.safeParse({ sessionId: ids.sessionId, closedAt: '2026-09-10T18:00:00.000Z', closeOdometer: 250, reportedTripCount: -1, reportedIncome: 1000 });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts valid close reconciliation inputs', () => {
+    const result = closeSessionSchema.safeParse({ sessionId: ids.sessionId, closedAt: '2026-09-10T18:00:00.000Z', closeOdometer: 250, reportedTripCount: 8, reportedIncome: 2400 });
     expect(result.success).toBe(true);
   });
 });
