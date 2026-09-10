@@ -3,7 +3,7 @@ package com.caboperations.driver.data
 import android.content.Context
 import android.provider.Settings
 
-/** Temporary development identity holder. Production will replace this with authenticated Supabase identity. */
+/** Authenticated driver/vehicle assignment cached locally for offline operation. */
 class DriverIdentity(context: Context) {
     private val prefs = context.getSharedPreferences("driver_identity", Context.MODE_PRIVATE)
     val driverId: String? get() = prefs.getString("driver_id", null)
@@ -15,5 +15,9 @@ class DriverIdentity(context: Context) {
 
     fun configure(driverId: String, vehicleId: String) {
         prefs.edit().putString("driver_id", driverId).putString("vehicle_id", vehicleId).apply()
+    }
+
+    fun clearAssignment() {
+        prefs.edit().remove("driver_id").remove("vehicle_id").apply()
     }
 }
