@@ -1,21 +1,11 @@
 package com.caboperations.driver.auth
 
 import com.caboperations.driver.BuildConfig
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.HttpURLConnection
 import java.net.URL
-
-@Serializable
-data class DriverContext(
-    val userId: String,
-    val driverId: String,
-    val displayName: String,
-    val vehicleId: String? = null,
-    val registrationNumber: String? = null
-)
 
 class DriverContextRepository {
     private val json = Json { ignoreUnknownKeys = true }
