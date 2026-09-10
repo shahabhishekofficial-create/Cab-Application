@@ -3,12 +3,20 @@ import { expenseSchema, fuelSchema, tripSchema } from '../domain/schemas.js';
 import { createExpense, createFuel, createTrip } from '../db/transaction-repository.js';
 import { authErrorResponse, requireDriver } from '../auth/driver-auth.js';
 
-function errorResponse(reply: any, error: any) {
+function errorResponse(reply: any, error: unknown) {
   const auth = authErrorResponse(error);
   if (auth) return reply.code(auth.status).send(auth.body);
-  const message = String(error?.message ?? 'TRANSACTION_FAILED');
-  if (message.includes('SESSION_NOT_OPEN') || message.includes('SESSION_IDENTITY_MISMATCH')) return reply.code(409).send({ error: message });
-  return reply.code(500).send({ error: 'TRANSACTION_FAILED', message });
+
+  const message = error instanceof Error ? error.message : String(error);
+  const known = [
+    'SESSION_NOT_OPEN',
+    'SESSION_IDENTITY_MISMATCH',
+  ];
+  const code = known.find((value) => message.includes(value));
+  if (code) return reply.code(409).send({ error: code, message: code });
+
+  // Never expose raw database/driver errors to the client.
+  return reply.code(500).send({ error: 'TRANSACTION_FAILED' });
 }
 
 export async function registerTransactionRoutes(app: FastifyInstance) {
