@@ -28,6 +28,7 @@ import com.caboperations.driver.location.LocationSnapshot
 import com.caboperations.driver.ocr.OdometerOcrEngine
 import com.caboperations.driver.ocr.OdometerOcrResult
 import com.caboperations.driver.ocr.OdometerVerifier
+import kotlinx.coroutines.launch
 
 @Composable
 fun SessionStartScreen(
