@@ -1,7 +1,9 @@
 package com.caboperations.driver.network
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -24,9 +26,8 @@ class PlatformRepository(private val baseUrl: String, private val accessToken: S
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) error("PLATFORMS_LOAD_FAILED")
             val root = json.parseToJsonElement(text).jsonObject
-            json.decodeFromJsonElement(ListSerializer(PlatformOption.serializer()), root["platforms"]!!)
+            val platforms = root["platforms"] ?: error("PLATFORMS_LOAD_FAILED")
+            json.decodeFromJsonElement(ListSerializer(PlatformOption.serializer()), platforms)
         } finally { connection.disconnect() }
     }
-
-    private object ListSerializer : kotlinx.serialization.KSerializer<List<PlatformOption>> by kotlinx.serialization.builtins.ListSerializer(PlatformOption.serializer())
 }
