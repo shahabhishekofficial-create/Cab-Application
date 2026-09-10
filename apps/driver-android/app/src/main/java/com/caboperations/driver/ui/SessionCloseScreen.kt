@@ -26,6 +26,9 @@ import com.caboperations.driver.capture.CameraPreviewController
 import com.caboperations.driver.data.SessionCloseLocalRepository
 import com.caboperations.driver.location.FusedLocationProvider
 import com.caboperations.driver.location.LocationSnapshot
+import com.caboperations.driver.ocr.OdometerOcrEngine
+import com.caboperations.driver.ocr.OdometerOcrResult
+import com.caboperations.driver.ocr.OdometerVerifier
 import kotlinx.coroutines.launch
 
 @Composable
@@ -48,6 +51,7 @@ fun SessionCloseScreen(
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var photoPath by remember { mutableStateOf<String?>(null) }
     var gps by remember { mutableStateOf<LocationSnapshot?>(null) }
+    var ocr by remember { mutableStateOf<OdometerOcrResult?>(null) }
     var status by remember { mutableStateOf("Capture closing odometer photo and GPS") }
     var busy by remember { mutableStateOf(false) }
 
@@ -85,27 +89,42 @@ fun SessionCloseScreen(
         AndroidView(factory = { PreviewView(it) }, modifier = Modifier.fillMaxWidth().height(260.dp), update = { view -> CameraPreviewController(context).bind(owner, view) { imageCapture = it } })
         Button(enabled = imageCapture != null && !busy, onClick = {
             CameraCapture(context).capture(imageCapture!!, "close_odo") { result ->
-                result.onSuccess { uri -> photoPath = uri.toString(); status = "Closing odometer photo captured" }.onFailure { status = "Camera failed: ${it.message}" }
+                result.onSuccess { uri ->
+                    photoPath = uri.toString()
+                    busy = true
+                    scope.launch {
+                        status = "Reading odometer…"
+                        ocr = OdometerOcrEngine(context).recognize(uri)
+                        status = if (ocr?.reading != null) "OCR: ${ocr!!.reading} • quality ${(ocr!!.confidence * 100).toInt()}%" else "OCR could not read the odometer • manual review"
+                        busy = false
+                    }
+                }.onFailure { status = "Camera failed: ${it.message}" }
             }
-        }, modifier = Modifier.fillMaxWidth()) { Text("CAPTURE CLOSING ODOMETER") }
+        }, modifier = Modifier.fillMaxWidth()) { Text("CAPTURE & READ ODOMETER") }
+        ocr?.let { result ->
+            val manual = closeOdo
+            if (manual != null) Text("OCR verification: ${OdometerVerifier.compare(manual, result.reading, result.confidence).name}")
+        }
         OutlinedTextField(value = tripCount, onValueChange = { tripCount = it.filter(Char::isDigit) }, label = { Text("Reported trip count") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = income, onValueChange = { income = it }, label = { Text("Reported income (₹)") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth())
         Text(status)
         if (gps?.isUsable() == true) Text("GPS ready • ±${gps!!.accuracyMeters.toInt()} m")
-        Button(enabled = !busy && closeOdo != null && closeOdo >= startOdometer && count != null && count >= 0 && reportedIncome != null && reportedIncome >= 0 && photoPath != null && gps?.isUsable() == true, onClick = {
+        Button(enabled = !busy && closeOdo != null && closeOdo >= startOdometer && count != null && count >= 0 && reportedIncome != null && reportedIncome >= 0 && photoPath != null && gps?.isUsable() == true && ocr != null, onClick = {
             val odo = closeOdo ?: return@Button
             val trips = count ?: return@Button
             val amount = reportedIncome ?: return@Button
             val location = gps ?: return@Button
             val photo = photoPath ?: return@Button
+            val ocrResult = ocr ?: return@Button
+            val decision = OdometerVerifier.compare(odo, ocrResult.reading, ocrResult.confidence)
             busy = true
             scope.launch {
                 try {
-                    repository.queueCloseSession(sessionId, driverId, vehicleId, odo, location.latitude, location.longitude, location.accuracyMeters, java.time.Instant.ofEpochMilli(location.capturedAtEpochMs).toString(), photo, trips, amount, notes.ifBlank { null })
-                    status = "Session closed locally • photo queued • pending sync"
+                    repository.queueCloseSession(sessionId, driverId, vehicleId, odo, location.latitude, location.longitude, location.accuracyMeters, java.time.Instant.ofEpochMilli(location.capturedAtEpochMs).toString(), photo, trips, amount, notes.ifBlank { null }, ocrResult, decision)
+                    status = "Session closed locally • OCR ${decision.name} • photo queued • pending sync"
                     onClosed()
-                } catch (e: Exception) { status = e.message ?: "Unable to close session" } finally { busy = false }
+                } catch (e: Exception) { status = e.message ?: "Unable to close session"; busy = false }
             }
         }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "CLOSING…" else "CLOSE SESSION") }
         Button(enabled = !busy, onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("CANCEL") }
