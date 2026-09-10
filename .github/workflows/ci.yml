@@ -44,6 +44,9 @@ jobs:
     defaults:
       run:
         working-directory: apps/admin-web
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,6 +55,8 @@ jobs:
           cache: npm
           cache-dependency-path: apps/admin-web/package.json
       - run: npm install
+      - name: Verify admin Supabase configuration
+        run: test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
       - run: npm run build
 
   android:
@@ -68,10 +73,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Verify Android Supabase configuration
+        run: test -n "$SUPABASE_URL" && test -n "$SUPABASE_PUBLISHABLE_KEY"
       - name: Build Android debug APK
         run: gradle assembleDebug -PSUPABASE_URL="$SUPABASE_URL" -PSUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
       - name: Run Android unit tests
