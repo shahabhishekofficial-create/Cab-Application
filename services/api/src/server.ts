@@ -13,6 +13,12 @@ import { registerAdminExportRoutes } from './routes/admin-exports.js';
 
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 * 1024 });
 
+app.setErrorHandler((error, request, reply) => {
+  request.log.error(error);
+  if (error instanceof z.ZodError) return reply.code(400).send({ error: 'VALIDATION_ERROR', details: error.issues });
+  return reply.code(500).send({ error: 'INTERNAL_SERVER_ERROR' });
+});
+
 app.get('/health', async () => ({ status: 'ok', service: 'cab-api' }));
 
 const transactionSchema = z.object({
