@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerTransactionRoutes } from './routes/transactions.js';
 import { registerSyncRoutes } from './routes/sync.js';
+import { registerFileRoutes } from './routes/files.js';
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: 10 * 1024 * 1024 });
 
 app.get('/health', async () => ({ status: 'ok', service: 'cab-api' }));
 
@@ -20,6 +21,7 @@ app.post('/v1/sync/validate', async (request, reply) => {
   return { accepted: true, clientTransactionId: parsed.data.clientTransactionId };
 });
 
+await registerFileRoutes(app);
 await registerSessionRoutes(app);
 await registerTransactionRoutes(app);
 await registerSyncRoutes(app);
