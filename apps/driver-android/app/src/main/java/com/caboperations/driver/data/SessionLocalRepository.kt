@@ -3,6 +3,8 @@ package com.caboperations.driver.data
 import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
+import com.caboperations.driver.ocr.OdometerOcrResult
+import com.caboperations.driver.ocr.OdometerVerifier
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
@@ -21,7 +23,9 @@ class SessionLocalRepository(private val context: Context) {
         startLng: Double?,
         startAccuracyM: Float?,
         startGpsAt: String?,
-        startOdometerFilePath: String? = null
+        startOdometerFilePath: String? = null,
+        ocrResult: OdometerOcrResult? = null,
+        ocrDecision: OdometerVerifier.Decision? = null
     ): String {
         val transactionId = UUID.randomUUID().toString()
         val sessionId = UUID.randomUUID().toString()
@@ -45,22 +49,20 @@ class SessionLocalRepository(private val context: Context) {
             startAccuracyM?.let { put("startAccuracyM", it) }
             startGpsAt?.let { put("startGpsAt", it) }
             fileId?.let { put("startOdometerFileId", it) }
+            ocrResult?.reading?.let { put("ocrReading", it) }
+            ocrResult?.let { put("ocrConfidence", it.confidence); put("ocrRawText", it.rawText) }
+            ocrDecision?.let { put("ocrDecision", it.name) }
         }.toString()
 
         db.withTransaction {
             if (fileId != null && filePath != null) {
-                db.pendingTransactionDao().insert(
-                    PendingTransaction(
-                        UUID.randomUUID().toString(), "FILE_UPLOAD",
-                        buildJsonObject {
-                            put("fileId", fileId)
-                            put("localFilePath", filePath)
-                            put("objectPath", objectPath!!)
-                            put("mimeType", "image/jpeg")
-                            put("capturedAt", now)
-                        }.toString(), System.currentTimeMillis()
-                    )
-                )
+                db.pendingTransactionDao().insert(PendingTransaction(
+                    UUID.randomUUID().toString(), "FILE_UPLOAD",
+                    buildJsonObject {
+                        put("fileId", fileId); put("localFilePath", filePath)
+                        put("objectPath", objectPath!!); put("mimeType", "image/jpeg"); put("capturedAt", now)
+                    }.toString(), System.currentTimeMillis()
+                ))
             }
             db.localSessionDao().insert(LocalSession(sessionId, driverId, vehicleId, "OPEN", startOdometer))
             db.pendingTransactionDao().insert(PendingTransaction(transactionId, "SESSION_START", payload, System.currentTimeMillis()))
