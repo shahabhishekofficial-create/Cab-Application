@@ -14,6 +14,27 @@ import { registerAdminDriverRoutes } from './routes/admin-drivers.js';
 
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 * 1024 });
 
+const allowedOrigins = new Set(
+  (process.env.CORS_ALLOWED_ORIGINS ?? 'https://cab-application-admin.onrender.com,http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+
+app.addHook('onRequest', async (request, reply) => {
+  const origin = request.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    reply.header('Access-Control-Allow-Origin', origin);
+    reply.header('Vary', 'Origin');
+    reply.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  }
+  if (request.method === 'OPTIONS') {
+    if (!origin || !allowedOrigins.has(origin)) return reply.code(403).send();
+    return reply.code(204).send();
+  }
+});
+
 app.setErrorHandler((error, request, reply) => {
   request.log.error(error);
   if (error instanceof z.ZodError) return reply.code(400).send({ error: 'VALIDATION_ERROR', details: error.issues });
