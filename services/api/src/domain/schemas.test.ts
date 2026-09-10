@@ -32,6 +32,10 @@ describe('transaction schemas', () => {
 });
 
 describe('session close schema', () => {
-  it('rejects negative reported trip count', () => expect(closeSessionSchema.safeParse({ sessionId: ids.sessionId, closedAt: '2026-09-10T18:00:00.000Z', closeOdometer: 250, reportedTripCount: -1, reportedIncome: 1000 }).success).toBe(false));
-  it('accepts valid close reconciliation inputs', () => expect(closeSessionSchema.safeParse({ sessionId: ids.sessionId, closedAt: '2026-09-10T18:00:00.000Z', closeOdometer: 250, reportedTripCount: 8, reportedIncome: 2400 }).success).toBe(true));
+  it('requires a stable client transaction ID for retry-safe close', () => {
+    const { clientTransactionId: _, ...withoutClientId } = ids;
+    expect(closeSessionSchema.safeParse({ ...withoutClientId, closedAt: '2026-09-10T18:00:00.000Z', closeOdometer: 250, reportedTripCount: 8, reportedIncome: 2400 }).success).toBe(false);
+  });
+  it('rejects negative reported trip count', () => expect(closeSessionSchema.safeParse({ clientTransactionId: ids.clientTransactionId, sessionId: ids.sessionId, closedAt: '2026-09-10T18:00:00.000Z', closeOdometer: 250, reportedTripCount: -1, reportedIncome: 1000 }).success).toBe(false));
+  it('accepts valid close reconciliation inputs', () => expect(closeSessionSchema.safeParse({ clientTransactionId: ids.clientTransactionId, sessionId: ids.sessionId, closedAt: '2026-09-10T18:00:00.000Z', closeOdometer: 250, reportedTripCount: 8, reportedIncome: 2400 }).success).toBe(true));
 });
