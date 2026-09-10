@@ -1,5 +1,6 @@
 package com.caboperations.driver.data
 
+import androidx.room.withTransaction
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.Instant
@@ -23,7 +24,8 @@ class ExpenseLocalRepository(private val context: android.content.Context) {
         recordedAt: String = Instant.now().toString(),
         notes: String? = null
     ): String {
-        require(amount >= 0) { "Expense amount cannot be negative" }
+        require(amount > 0) { "Expense amount must be greater than zero" }
+        require(odometer == null || odometer >= 0) { "Expense odometer cannot be negative" }
 
         val id = UUID.randomUUID().toString()
         val payload = buildJsonObject {
@@ -43,12 +45,10 @@ class ExpenseLocalRepository(private val context: android.content.Context) {
             notes?.let { put("notes", it) }
         }.toString()
 
-        db.pendingTransactionDao().insert(
-            PendingTransaction(id, "EXPENSE", payload, System.currentTimeMillis())
-        )
-        db.localExpenseDao().insert(
-            LocalExpense(id, sessionId, amount, categoryId, false)
-        )
+        db.withTransaction {
+            db.pendingTransactionDao().insert(PendingTransaction(id, "EXPENSE", payload, System.currentTimeMillis()))
+            db.localExpenseDao().insert(LocalExpense(id, sessionId, amount, categoryId, false))
+        }
         return id
     }
 }
