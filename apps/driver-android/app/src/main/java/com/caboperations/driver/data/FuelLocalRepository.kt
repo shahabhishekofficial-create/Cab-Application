@@ -1,5 +1,6 @@
 package com.caboperations.driver.data
 
+import androidx.room.withTransaction
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.Instant
@@ -50,12 +51,10 @@ class FuelLocalRepository(private val context: android.content.Context) {
             notes?.let { put("notes", it) }
         }.toString()
 
-        db.pendingTransactionDao().insert(
-            PendingTransaction(id, "FUEL", payload, System.currentTimeMillis())
-        )
-        db.localFuelDao().insert(
-            LocalFuel(id, sessionId, odometer, quantity, rate, amount, fuelType, false)
-        )
+        db.withTransaction {
+            db.pendingTransactionDao().insert(PendingTransaction(id, "FUEL", payload, System.currentTimeMillis()))
+            db.localFuelDao().insert(LocalFuel(id, sessionId, odometer, quantity, rate, amount, fuelType, false))
+        }
         return id
     }
 }
