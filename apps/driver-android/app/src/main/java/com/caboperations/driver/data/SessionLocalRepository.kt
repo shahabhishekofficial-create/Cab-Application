@@ -22,13 +22,14 @@ class SessionLocalRepository(private val context: Context) {
     ): String {
         val transactionId = UUID.randomUUID().toString()
         val sessionId = UUID.randomUUID().toString()
+        val now = Instant.now().toString()
         val payload = buildJsonObject {
             put("clientTransactionId", transactionId)
             put("sessionId", sessionId)
             put("driverId", driverId)
             put("vehicleId", vehicleId)
             deviceId?.let { put("deviceId", it) }
-            put("startedAt", Instant.now().toString())
+            put("startedAt", now)
             put("startOdometer", startOdometer)
             startLat?.let { put("startLat", it) }
             startLng?.let { put("startLng", it) }
@@ -37,6 +38,13 @@ class SessionLocalRepository(private val context: Context) {
             startOdometerFileId?.let { put("startOdometerFileId", it) }
         }.toString()
 
+        db.runInTransaction {
+            // Local source of truth is created before any network attempt.
+            // Room's synchronous transaction keeps the session row and pending queue consistent.
+            db.localSessionDao().insert(
+                LocalSession(sessionId, driverId, vehicleId, "OPEN", startOdometer)
+            )
+        }
         db.pendingTransactionDao().insert(
             PendingTransaction(transactionId, "SESSION_START", payload, System.currentTimeMillis())
         )
