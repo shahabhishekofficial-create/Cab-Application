@@ -39,17 +39,31 @@ fun DriverApp() {
     var registration by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
-    fun refreshPending() { scope.launch { pendingCount = runCatching { CabDatabase.get(context).pendingTransactionDao().pendingCount() }.getOrDefault(0) } }
+    fun refreshPending() {
+        scope.launch {
+            pendingCount = runCatching { CabDatabase.get(context).pendingTransactionDao().pendingCount() }.getOrDefault(0)
+        }
+    }
 
     suspend fun loadAuthenticatedDriver(): Boolean {
         val session = auth.session() ?: return false
         val result = withContext(Dispatchers.IO) { driverContext.load(session.accessToken) }
-        if (result.isFailure) return false
-        val c = result.getOrThrow()
-        identity.configure(c.driverId, c.vehicleId ?: return false)
-        displayName = c.displayName
-        registration = c.registrationNumber.orEmpty()
-        return true
+        if (result.isSuccess) {
+            val c = result.getOrThrow()
+            val vehicleId = c.vehicleId ?: return false
+            identity.configure(c.driverId, vehicleId)
+            displayName = c.displayName
+            registration = c.registrationNumber.orEmpty()
+            return true
+        }
+
+        // Keep an already-known assignment for offline-first operation. A server/auth
+        // failure is not enough reason to erase the driver's local operating context.
+        if (identity.driverId != null && identity.vehicleId != null) {
+            status = "Offline mode • server unavailable; local entries remain safe"
+            return true
+        }
+        return false
     }
 
     LaunchedEffect(Unit) {
