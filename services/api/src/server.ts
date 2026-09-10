@@ -8,6 +8,7 @@ import { registerDriverContextRoutes } from './routes/driver-context.js';
 import { registerPlatformRoutes } from './routes/platforms.js';
 import { registerExpenseCategoryRoutes } from './routes/expense-categories.js';
 import { registerAdminSessionRoutes } from './routes/admin-sessions.js';
+import { registerAdminMetricsRoutes } from './routes/admin-metrics.js';
 
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 * 1024 });
 
@@ -30,6 +31,7 @@ await registerDriverContextRoutes(app);
 await registerPlatformRoutes(app);
 await registerExpenseCategoryRoutes(app);
 await registerAdminSessionRoutes(app);
+await registerAdminMetricsRoutes(app);
 await registerSessionRoutes(app);
 await registerTransactionRoutes(app);
 await registerSyncRoutes(app);
