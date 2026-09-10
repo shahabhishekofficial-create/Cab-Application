@@ -43,18 +43,35 @@ fun SessionStartScreen(
     var status by remember { mutableStateOf("Capture odometer photo and GPS") }
     var busy by remember { mutableStateOf(false) }
 
+    fun captureGps() {
+        FusedLocationProvider(context).currentLocation { location, error ->
+            gps = location
+            status = error ?: if (location?.isUsable() == true) {
+                "GPS ready • ±${location.accuracyMeters.toInt()} m"
+            } else {
+                "GPS accuracy needs review"
+            }
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         val cameraGranted = grants[Manifest.permission.CAMERA] == true ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val locationGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!cameraGranted) status = "Camera permission is required"
+        if (locationGranted) captureGps() else if (!cameraGranted) status = "Camera and location permissions are required"
     }
 
     LaunchedEffect(Unit) {
         val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (!cameraGranted || !fineGranted) {
+        val locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!cameraGranted || !locationGranted) {
             permissionLauncher.launch(
                 arrayOf(
                     Manifest.permission.CAMERA,
@@ -62,16 +79,8 @@ fun SessionStartScreen(
                     Manifest.permission.ACCESS_COARSE_LOCATION
                 )
             )
-        }
-        if (fineGranted || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            FusedLocationProvider(context).currentLocation { location, error ->
-                gps = location
-                status = error ?: if (location?.isUsable() == true) {
-                    "GPS ready • ±${location.accuracyMeters.toInt()} m"
-                } else {
-                    "GPS accuracy needs review"
-                }
-            }
+        } else {
+            captureGps()
         }
     }
 
