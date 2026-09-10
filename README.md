@@ -17,6 +17,8 @@ LOGIN → HOME → START SESSION → ODOMETER PHOTO → GPS → SESSION OPEN →
 ## Authentication
 The driver app uses Supabase Auth email/password login. The API validates the Supabase access token and derives the driver and active vehicle assignment server-side. Driver/vehicle headers are not trusted for identity.
 
+The mobile app refreshes an expiring access token before offline queue synchronization. A temporary API/network failure does not erase a previously cached driver/vehicle assignment; locally captured operational data remains available for later synchronization.
+
 ## Android local configuration
 Create `apps/driver-android/gradle.properties` locally (do not commit it):
 
@@ -30,12 +32,14 @@ For a physical Android phone, replace `10.0.2.2` with the LAN-reachable API URL 
 
 ## Supabase setup
 1. Create separate development/test and production Supabase projects.
-2. Apply migrations in `database/migrations` in order.
-3. Enable Email/Password authentication.
-4. Create the driver Auth user in Supabase Auth.
-5. Create the matching `app_users` row using the Auth user's UUID as `app_users.id`.
-6. Create the matching `drivers` row and an active `driver_vehicle_assignments` row.
-7. Keep the production service-role key only on the API server.
+2. Apply migrations in `database/migrations` in numeric filename order.
+3. Do not edit migrations that have already been applied; add a new migration for corrections.
+4. Migration `009_driver_context_compatibility.sql` removes both obsolete and current driver-context function signatures before recreating the UUID-based function. This makes upgrades from earlier revisions deterministic.
+5. Enable Email/Password authentication.
+6. Create the driver Auth user in Supabase Auth.
+7. Create the matching `app_users` row using the Auth user's UUID as `app_users.id`.
+8. Create the matching `drivers` row and an active `driver_vehicle_assignments` row.
+9. Keep the production service-role key only on the API server.
 
 ## Rules
 - Sessions are continuous work periods, not calendar-day records.
