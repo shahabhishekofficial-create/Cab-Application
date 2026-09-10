@@ -10,7 +10,7 @@ class ApiClient(private val baseUrl: String, private val accessToken: String? = 
     private fun resultForCode(code: Int): Result = when {
         code in 200..299 -> Result(true, false)
         code == 401 -> Result(false, false, "AUTH_EXPIRED", authExpired = true)
-        code == 408 || code == 409 || code == 429 || code >= 500 -> Result(false, true, "HTTP_$code")
+        code == 408 || code == 429 || code >= 500 -> Result(false, true, "HTTP_$code")
         code in 400..499 -> Result(false, false, "HTTP_$code")
         else -> Result(false, true, "HTTP_$code")
     }
