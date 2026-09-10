@@ -29,7 +29,8 @@ describe('transaction schemas', () => {
   it('rejects negative fuel rate and odometer', () => expect(fuel({ odometer: -1, rate: -1, amount: 90 }).success).toBe(false));
   it('rejects a fuel amount that does not match quantity × rate', () => expect(fuel({ amount: 899 }).success).toBe(false));
   it('accepts fuel amount within currency rounding tolerance', () => expect(fuel({ quantity: 3, rate: 90.01, amount: 270.03 }).success).toBe(true));
-  it('accepts an expense without optional proof or GPS', () => expect(expenseSchema.safeParse({ ...ids, amount: 250, recordedAt: timestamp }).success).toBe(true));
+  it('accepts a positive expense without optional proof or GPS', () => expect(expenseSchema.safeParse({ ...ids, amount: 250, recordedAt: timestamp }).success).toBe(true));
+  it('rejects zero expense amounts', () => expect(expenseSchema.safeParse({ ...ids, amount: 0, recordedAt: timestamp }).success).toBe(false));
   it('rejects negative expense amounts', () => expect(expenseSchema.safeParse({ ...ids, amount: -1, recordedAt: timestamp }).success).toBe(false));
   it('rejects invalid expense payment methods', () => expect(expenseSchema.safeParse({ ...ids, amount: 250, paymentMethod: 'WALLET', recordedAt: timestamp }).success).toBe(false));
 });
