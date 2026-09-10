@@ -35,6 +35,7 @@ fun SessionStartScreen(
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     var odometer by remember { mutableStateOf("") }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var photoPath by remember { mutableStateOf<String?>(null) }
@@ -42,49 +43,89 @@ fun SessionStartScreen(
     var status by remember { mutableStateOf("Capture odometer photo and GPS") }
     var busy by remember { mutableStateOf(false) }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        if (grants[Manifest.permission.CAMERA] == true || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            CameraPreviewController(context).bind(owner, PreviewView(context), onReady = { imageCapture = it })
-        }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val cameraGranted = grants[Manifest.permission.CAMERA] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (!cameraGranted) status = "Camera permission is required"
     }
 
     LaunchedEffect(Unit) {
-        permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-        FusedLocationProvider(context).currentLocation { location, error ->
-            gps = location
-            status = error ?: if (location?.isUsable() == true) "GPS ready • ±${location.accuracyMeters.toInt()} m" else "GPS accuracy needs review"
+        val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!cameraGranted || !fineGranted) {
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+        if (fineGranted || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            FusedLocationProvider(context).currentLocation { location, error ->
+                gps = location
+                status = error ?: if (location?.isUsable() == true) {
+                    "GPS ready • ±${location.accuracyMeters.toInt()} m"
+                } else {
+                    "GPS accuracy needs review"
+                }
+            }
         }
     }
 
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("START SESSION")
-        OutlinedTextField(value = odometer, onValueChange = { odometer = it }, label = { Text("Starting odometer") }, modifier = Modifier.fillMaxWidth())
-        AndroidView(factory = { PreviewView(it) }, modifier = Modifier.fillMaxWidth().height(280.dp)) { view ->
-            CameraPreviewController(context).bind(owner, view) { imageCapture = it }
-        }
-        Button(enabled = imageCapture != null && !busy, onClick = {
-            val capture = imageCapture ?: return@Button
-            CameraCapture(context).capture(capture, "start_odo") { result ->
-                result.onSuccess { uri -> photoPath = uri.toString(); status = "Photo captured" }
-                    .onFailure { status = "Camera failed: ${it.message}" }
+        Text("Driver: $driverId")
+        Text("Vehicle: $vehicleId")
+        OutlinedTextField(
+            value = odometer,
+            onValueChange = { odometer = it },
+            label = { Text("Starting odometer") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        AndroidView(
+            factory = { PreviewView(it) },
+            modifier = Modifier.fillMaxWidth().height(280.dp),
+            update = { view ->
+                CameraPreviewController(context).bind(owner, view) { imageCapture = it }
             }
-        }, modifier = Modifier.fillMaxWidth()) { Text("CAPTURE ODOMETER") }
+        )
+        Button(
+            enabled = imageCapture != null && !busy,
+            onClick = {
+                val capture = imageCapture ?: return@Button
+                CameraCapture(context).capture(capture, "start_odo") { result ->
+                    result.onSuccess { uri ->
+                        photoPath = uri.toString()
+                        status = "Photo captured"
+                    }.onFailure { status = "Camera failed: ${it.message}" }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("CAPTURE ODOMETER") }
         Text(status)
-        photoPath?.let { Text("Photo ready") }
-        Button(enabled = !busy && odometer.toDoubleOrNull() != null && photoPath != null && gps?.isUsable() == true, onClick = {
-            val odo = odometer.toDoubleOrNull() ?: return@Button
-            val location = gps ?: return@Button
-            busy = true
-            LaunchedEffectKey.start(context, odo, location, photoPath!!, driverId, vehicleId, onStart) { busy = false }
-        }, modifier = Modifier.fillMaxWidth()) { Text("OPEN SESSION") }
+        if (photoPath != null) Text("Photo ready")
+        Button(
+            enabled = !busy && odometer.toDoubleOrNull() != null && photoPath != null && gps?.isUsable() == true,
+            onClick = {
+                val odo = odometer.toDoubleOrNull() ?: return@Button
+                val location = gps ?: return@Button
+                val photo = photoPath ?: return@Button
+                busy = true
+                scope.launch {
+                    try {
+                        onStart(odo, location, photo)
+                    } catch (e: Exception) {
+                        status = e.message ?: "Unable to open session"
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (busy) "OPENING…" else "OPEN SESSION") }
         Button(enabled = !busy, onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("CANCEL") }
-    }
-}
-
-private object LaunchedEffectKey {
-    fun start(context: android.content.Context, odo: Double, location: LocationSnapshot, photo: String, driverId: String, vehicleId: String, onStart: suspend (Double, LocationSnapshot, String) -> Unit, done: () -> Unit) {
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-            try { onStart(odo, location, photo) } finally { done() }
-        }
     }
 }
