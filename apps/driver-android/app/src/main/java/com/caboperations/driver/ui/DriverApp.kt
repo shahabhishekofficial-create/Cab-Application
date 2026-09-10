@@ -45,6 +45,17 @@ fun DriverApp() {
         }
     }
 
+    fun restoreLocalSessionIfValid() {
+        val cached = sessionState.current() ?: return
+        if (cached.driverId == identity.driverId && cached.vehicleId == identity.vehicleId) {
+            currentSession = cached
+        } else {
+            sessionState.close()
+            currentSession = null
+            status = "A stale local session was cleared; active assignment is unchanged"
+        }
+    }
+
     suspend fun loadAuthenticatedDriver(): Boolean {
         val session = auth.session() ?: return false
         val result = withContext(Dispatchers.IO) { driverContext.load(session.accessToken) }
@@ -54,12 +65,14 @@ fun DriverApp() {
             identity.configure(c.driverId, vehicleId)
             displayName = c.displayName
             registration = c.registrationNumber.orEmpty()
+            restoreLocalSessionIfValid()
             return true
         }
 
-        // Keep an already-known assignment for offline-first operation. A server/auth
-        // failure is not enough reason to erase the driver's local operating context.
+        // A cached assignment is enough to keep the app usable offline. Never erase
+        // credentials or local session state merely because the server is unreachable.
         if (identity.driverId != null && identity.vehicleId != null) {
+            restoreLocalSessionIfValid()
             status = "Offline mode • server unavailable; local entries remain safe"
             return true
         }
@@ -67,7 +80,7 @@ fun DriverApp() {
     }
 
     LaunchedEffect(Unit) {
-        if (loadAuthenticatedDriver()) screen = "HOME" else { auth.logout(); identity.clearAssignment(); screen = "LOGIN" }
+        if (loadAuthenticatedDriver()) screen = "HOME" else { auth.logout(); identity.clearAssignment(); sessionState.close(); screen = "LOGIN" }
     }
     LaunchedEffect(screen) { refreshPending() }
 
@@ -77,7 +90,7 @@ fun DriverApp() {
             screen == "LOGIN" -> LoginScreen(auth) {
                 scope.launch {
                     if (loadAuthenticatedDriver()) { status = "Logged in • assignment loaded"; screen = "HOME" }
-                    else { auth.logout(); identity.clearAssignment(); status = "Login succeeded but no active driver assignment" }
+                    else { auth.logout(); identity.clearAssignment(); sessionState.close(); status = "Login succeeded but no active driver assignment" }
                 }
             }
             screen == "START" && identity.driverId != null && identity.vehicleId != null -> SessionStartScreen(
@@ -114,7 +127,7 @@ fun DriverApp() {
                 }
                 if (status.isNotBlank()) Text(status)
                 Text("Offline-first: entries are saved locally and sync when connectivity returns.")
-                TextButton(onClick = { auth.logout(); identity.clearAssignment(); currentSession = null; screen = "LOGIN" }) { Text("LOG OUT") }
+                TextButton(onClick = { auth.logout(); identity.clearAssignment(); sessionState.close(); currentSession = null; screen = "LOGIN" }) { Text("LOG OUT") }
             }
         }
     }
