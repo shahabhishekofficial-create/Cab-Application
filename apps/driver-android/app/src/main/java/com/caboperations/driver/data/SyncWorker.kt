@@ -102,9 +102,12 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                 } else {
                     retry = true
                 }
+            } else if (result.retryable) {
+                // Keep the item pending. A transient failure must not become a permanent
+                // local failure merely because this worker invocation ended.
+                retry = true
             } else {
                 dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_FAILED")
-                if (result.retryable) retry = true
             }
 
             if (!result.success && (item.type == TYPE_SESSION_START || item.type == TYPE_SESSION_CLOSE)) break
