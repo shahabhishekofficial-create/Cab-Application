@@ -7,13 +7,7 @@ import java.nio.charset.StandardCharsets
 class ApiClient(private val baseUrl: String, private val accessToken: String? = null) {
     data class Result(val success: Boolean, val retryable: Boolean, val error: String? = null, val authExpired: Boolean = false)
 
-    private fun resultForCode(code: Int): Result = when {
-        code in 200..299 -> Result(true, false)
-        code == 401 -> Result(false, false, "AUTH_EXPIRED", authExpired = true)
-        code == 408 || code == 429 || code >= 500 -> Result(false, true, "HTTP_$code")
-        code in 400..499 -> Result(false, false, "HTTP_$code")
-        else -> Result(false, true, "HTTP_$code")
-    }
+    private fun resultForCode(code: Int): Result = classifyHttpCode(code)
 
     fun post(path: String, body: String, driverId: String?, vehicleId: String?): Result {
         val connection = (URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
@@ -42,5 +36,15 @@ class ApiClient(private val baseUrl: String, private val accessToken: String? = 
             resultForCode(connection.responseCode)
         } catch (e: Exception) { Result(false, true, e.message ?: "NETWORK_ERROR") }
         finally { connection.disconnect() }
+    }
+
+    companion object {
+        internal fun classifyHttpCode(code: Int): Result = when {
+            code in 200..299 -> Result(true, false)
+            code == 401 -> Result(false, false, "AUTH_EXPIRED", authExpired = true)
+            code == 408 || code == 429 || code >= 500 -> Result(false, true, "HTTP_$code")
+            code in 400..499 -> Result(false, false, "HTTP_$code")
+            else -> Result(false, true, "HTTP_$code")
+        }
     }
 }
