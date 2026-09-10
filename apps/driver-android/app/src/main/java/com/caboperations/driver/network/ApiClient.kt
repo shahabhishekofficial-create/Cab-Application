@@ -5,11 +5,11 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 
 class ApiClient(private val baseUrl: String, private val accessToken: String? = null) {
-    data class Result(val success: Boolean, val retryable: Boolean, val error: String? = null)
+    data class Result(val success: Boolean, val retryable: Boolean, val error: String? = null, val authExpired: Boolean = false)
 
     private fun resultForCode(code: Int): Result = when {
         code in 200..299 -> Result(true, false)
-        code == 401 -> Result(false, false, "AUTH_EXPIRED")
+        code == 401 -> Result(false, false, "AUTH_EXPIRED", authExpired = true)
         code == 408 || code == 429 || code >= 500 -> Result(false, true, "HTTP_$code")
         else -> Result(false, false, "HTTP_$code")
     }
