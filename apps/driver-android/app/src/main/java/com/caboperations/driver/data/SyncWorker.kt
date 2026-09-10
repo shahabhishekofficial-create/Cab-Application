@@ -3,6 +3,8 @@ package com.caboperations.driver.data
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.caboperations.driver.BuildConfig
+import com.caboperations.driver.auth.AuthRepository
 import com.caboperations.driver.network.ApiClient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -16,16 +18,15 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
         val pending = dao.pending()
         if (pending.isEmpty()) return Result.success()
 
-        val baseUrl = inputData.getString(KEY_BASE_URL) ?: return Result.failure()
-        val api = ApiClient(baseUrl)
+        val baseUrl = inputData.getString(KEY_BASE_URL) ?: BuildConfig.API_BASE_URL
+        val token = AuthRepository(applicationContext).session()?.accessToken
+            ?: return Result.failure()
+        val api = ApiClient(baseUrl, token)
         var retry = false
 
         for (item in pending) {
             val json = runCatching { Json.parseToJsonElement(item.payloadJson).jsonObject }.getOrNull()
-            if (json == null) {
-                dao.markFailed(item.clientTransactionId, "INVALID_LOCAL_PAYLOAD")
-                continue
-            }
+            if (json == null) { dao.markFailed(item.clientTransactionId, "INVALID_LOCAL_PAYLOAD"); continue }
             val driverId = json["driverId"]?.jsonPrimitive?.content
             val vehicleId = json["vehicleId"]?.jsonPrimitive?.content
 
@@ -35,48 +36,25 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                 val objectPath = json["objectPath"]?.jsonPrimitive?.content
                 val mimeType = json["mimeType"]?.jsonPrimitive?.content ?: "image/jpeg"
                 val capturedAt = json["capturedAt"]?.jsonPrimitive?.content
-                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) {
-                    dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD")
-                    continue
-                }
+                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) { dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD"); continue }
                 val file = File(filePath)
-                if (!file.exists()) {
-                    dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING")
-                    continue
-                }
+                if (!file.exists()) { dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING"); continue }
                 val result = api.uploadFile("/v1/files", fileId, objectPath, mimeType, file.readBytes(), capturedAt)
-                if (result.success) dao.markSynced(item.clientTransactionId)
-                else {
-                    dao.markFailed(item.clientTransactionId, result.error ?: "FILE_UPLOAD_FAILED")
-                    if (result.retryable) retry = true
-                }
+                if (result.success) dao.markSynced(item.clientTransactionId) else { dao.markFailed(item.clientTransactionId, result.error ?: "FILE_UPLOAD_FAILED"); if (result.retryable) retry = true }
                 if (!result.success) break
                 continue
             }
 
             val path = when (item.type) {
                 TYPE_SESSION_START -> "/v1/sessions"
-                TYPE_SESSION_CLOSE -> {
-                    val sessionId = json["sessionId"]?.jsonPrimitive?.content
-                    if (sessionId.isNullOrBlank()) {
-                        dao.markFailed(item.clientTransactionId, "MISSING_SESSION_ID")
-                        continue
-                    }
-                    "/v1/sessions/$sessionId/close"
-                }
+                TYPE_SESSION_CLOSE -> json["sessionId"]?.jsonPrimitive?.content?.let { "/v1/sessions/$it/close" } ?: run { dao.markFailed(item.clientTransactionId, "MISSING_SESSION_ID"); continue }
                 TYPE_TRIP -> "/v1/trips"
                 TYPE_FUEL -> "/v1/fuel"
                 TYPE_EXPENSE -> "/v1/expenses"
-                else -> {
-                    dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE")
-                    continue
-                }
+                else -> { dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE"); continue }
             }
-
             val result = api.post(path, item.payloadJson, driverId, vehicleId)
-            if (result.success) {
-                dao.markSynced(item.clientTransactionId)
-            } else {
+            if (result.success) dao.markSynced(item.clientTransactionId) else {
                 dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_FAILED")
                 if (result.retryable) retry = true
                 if (item.type == TYPE_SESSION_START || item.type == TYPE_SESSION_CLOSE) break
