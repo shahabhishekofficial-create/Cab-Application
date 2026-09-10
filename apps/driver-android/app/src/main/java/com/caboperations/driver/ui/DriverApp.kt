@@ -59,12 +59,12 @@ fun DriverApp() {
                     val sessionId = localRepository.queueStartSession(
                         driverId, vehicleId, identity.deviceId, odo,
                         gps.latitude, gps.longitude, gps.accuracyMeters,
-                        Instant.ofEpochMilli(gps.capturedAtEpochMs).toString(), null
+                        Instant.ofEpochMilli(gps.capturedAtEpochMs).toString(), photo
                     )
                     currentSession = sessionState.open(sessionId, driverId, vehicleId, odo)
                     refreshPending()
                     SyncScheduler.enqueue(context, API_BASE_URL)
-                    status = "Session saved locally • pending sync"
+                    status = "Session saved locally • photo queued • pending sync"
                     screen = "HOME"
                 },
                 onCancel = { screen = "HOME" }
@@ -78,7 +78,7 @@ fun DriverApp() {
                 onClosed = {
                     sessionState.close()
                     currentSession = null
-                    status = "Session closed locally • pending sync"
+                    status = "Session closed locally • photo queued • pending sync"
                     refreshPending()
                     SyncScheduler.enqueue(context, API_BASE_URL)
                     screen = "HOME"
@@ -105,7 +105,6 @@ fun DriverApp() {
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text("Cab Driver", style = MaterialTheme.typography.headlineMedium)
-
                 if (identity.driverId == null || identity.vehicleId == null) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
