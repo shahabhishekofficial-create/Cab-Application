@@ -26,7 +26,6 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
         var token = tokenResult.getOrNull()?.accessToken ?: return Result.retry()
         var api = ApiClient(baseUrl, token)
         var retry = false
-        var authRetried = false
 
         for (item in pending) {
             val json = runCatching { Json.parseToJsonElement(item.payloadJson).jsonObject }.getOrNull()
@@ -36,32 +35,44 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
             }
             val driverId = json["driverId"]?.jsonPrimitive?.content
             val vehicleId = json["vehicleId"]?.jsonPrimitive?.content
+            var authRetried = false
 
-            val result = if (item.type == TYPE_FILE_UPLOAD) {
+            fun postPath(): String? = when (item.type) {
+                TYPE_SESSION_START -> "/v1/sessions"
+                TYPE_SESSION_CLOSE -> json["sessionId"]?.jsonPrimitive?.content?.let { "/v1/sessions/$it/close" }
+                TYPE_TRIP -> "/v1/trips"
+                TYPE_FUEL -> "/v1/fuel"
+                TYPE_EXPENSE -> "/v1/expenses"
+                else -> null
+            }
+
+            fun upload(): ApiClient.Result? {
                 val filePath = json["localFilePath"]?.jsonPrimitive?.content
                 val fileId = json["fileId"]?.jsonPrimitive?.content
                 val objectPath = json["objectPath"]?.jsonPrimitive?.content
                 val mimeType = json["mimeType"]?.jsonPrimitive?.content ?: "image/jpeg"
                 val capturedAt = json["capturedAt"]?.jsonPrimitive?.content
+                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) return null
+                val file = File(filePath)
+                if (!file.exists()) return null
+                return api.uploadFile("/v1/files", fileId, objectPath, mimeType, file.readBytes(), capturedAt)
+            }
+
+            val result = if (item.type == TYPE_FILE_UPLOAD) {
+                val filePath = json["localFilePath"]?.jsonPrimitive?.content
+                val fileId = json["fileId"]?.jsonPrimitive?.content
+                val objectPath = json["objectPath"]?.jsonPrimitive?.content
                 if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) {
                     dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD")
                     continue
                 }
-                val file = File(filePath)
-                if (!file.exists()) {
+                if (!File(filePath).exists()) {
                     dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING")
                     continue
                 }
-                api.uploadFile("/v1/files", fileId, objectPath, mimeType, file.readBytes(), capturedAt)
+                upload()!!
             } else {
-                val path = when (item.type) {
-                    TYPE_SESSION_START -> "/v1/sessions"
-                    TYPE_SESSION_CLOSE -> json["sessionId"]?.jsonPrimitive?.content?.let { "/v1/sessions/$it/close" }
-                    TYPE_TRIP -> "/v1/trips"
-                    TYPE_FUEL -> "/v1/fuel"
-                    TYPE_EXPENSE -> "/v1/expenses"
-                    else -> null
-                }
+                val path = postPath()
                 if (path == null) {
                     dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE")
                     continue
@@ -81,25 +92,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                     token = refreshedToken
                     api = ApiClient(baseUrl, token)
                     authRetried = true
-                    val retryResult = if (item.type == TYPE_FILE_UPLOAD) {
-                        val filePath = json["localFilePath"]?.jsonPrimitive?.content
-                        val fileId = json["fileId"]?.jsonPrimitive?.content
-                        val objectPath = json["objectPath"]?.jsonPrimitive?.content
-                        val mimeType = json["mimeType"]?.jsonPrimitive?.content ?: "image/jpeg"
-                        val capturedAt = json["capturedAt"]?.jsonPrimitive?.content
-                        if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) null
-                        else File(filePath).takeIf { it.exists() }?.let { api.uploadFile("/v1/files", fileId, objectPath, mimeType, it.readBytes(), capturedAt) }
-                    } else {
-                        val path = when (item.type) {
-                            TYPE_SESSION_START -> "/v1/sessions"
-                            TYPE_SESSION_CLOSE -> json["sessionId"]?.jsonPrimitive?.content?.let { "/v1/sessions/$it/close" }
-                            TYPE_TRIP -> "/v1/trips"
-                            TYPE_FUEL -> "/v1/fuel"
-                            TYPE_EXPENSE -> "/v1/expenses"
-                            else -> null
-                        }
-                        path?.let { api.post(it, item.payloadJson, driverId, vehicleId) }
-                    }
+                    val retryResult = if (item.type == TYPE_FILE_UPLOAD) upload() else postPath()?.let { api.post(it, item.payloadJson, driverId, vehicleId) }
                     if (retryResult?.success == true) {
                         dao.markSynced(item.clientTransactionId)
                         continue
