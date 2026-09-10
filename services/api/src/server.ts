@@ -4,6 +4,7 @@ import { registerSessionRoutes } from './routes/sessions.js';
 import { registerTransactionRoutes } from './routes/transactions.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerFileRoutes } from './routes/files.js';
+import { registerDriverContextRoutes } from './routes/driver-context.js';
 
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 * 1024 });
 
@@ -22,6 +23,7 @@ app.post('/v1/sync/validate', async (request, reply) => {
 });
 
 await registerFileRoutes(app);
+await registerDriverContextRoutes(app);
 await registerSessionRoutes(app);
 await registerTransactionRoutes(app);
 await registerSyncRoutes(app);
