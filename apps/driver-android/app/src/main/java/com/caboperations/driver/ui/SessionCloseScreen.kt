@@ -54,32 +54,21 @@ fun SessionCloseScreen(
     fun captureGps() {
         FusedLocationProvider(context).currentLocation { location, error ->
             gps = location
-            status = error ?: if (location?.isUsable() == true) {
-                "GPS ready • ±${location.accuracyMeters.toInt()} m"
-            } else "GPS accuracy needs review"
+            status = error ?: if (location?.isUsable() == true) "GPS ready • ±${location.accuracyMeters.toInt()} m" else "GPS accuracy needs review"
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        val cameraGranted = grants[Manifest.permission.CAMERA] == true ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        val locationGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val cameraGranted = grants[Manifest.permission.CAMERA] == true || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val locationGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!cameraGranted) status = "Camera permission is required"
         if (locationGranted) captureGps() else if (!cameraGranted) status = "Camera and location permissions are required"
     }
 
     LaunchedEffect(Unit) {
         val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        val locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (!cameraGranted || !locationGranted) {
-            permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-        } else captureGps()
+        val locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!cameraGranted || !locationGranted) permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) else captureGps()
     }
 
     val closeOdo = odometer.toDoubleOrNull()
@@ -93,54 +82,32 @@ fun SessionCloseScreen(
         Text("Starting odometer: $startOdometer")
         OutlinedTextField(value = odometer, onValueChange = { odometer = it }, label = { Text("Closing odometer") }, modifier = Modifier.fillMaxWidth())
         if (runningKm != null) Text("Running KM: ${"%.2f".format(runningKm)}")
-
-        AndroidView(
-            factory = { PreviewView(it) },
-            modifier = Modifier.fillMaxWidth().height(260.dp),
-            update = { view -> CameraPreviewController(context).bind(owner, view) { imageCapture = it } }
-        )
-        Button(
-            enabled = imageCapture != null && !busy,
-            onClick = {
-                CameraCapture(context).capture(imageCapture!!, "close_odo") { result ->
-                    result.onSuccess { uri -> photoPath = uri.toString(); status = "Closing odometer photo captured" }
-                        .onFailure { status = "Camera failed: ${it.message}" }
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("CAPTURE CLOSING ODOMETER") }
-
-        OutlinedTextField(value = tripCount, onValueChange = { tripCount = it }, label = { Text("Reported trip count") }, modifier = Modifier.fillMaxWidth())
+        AndroidView(factory = { PreviewView(it) }, modifier = Modifier.fillMaxWidth().height(260.dp), update = { view -> CameraPreviewController(context).bind(owner, view) { imageCapture = it } })
+        Button(enabled = imageCapture != null && !busy, onClick = {
+            CameraCapture(context).capture(imageCapture!!, "close_odo") { result ->
+                result.onSuccess { uri -> photoPath = uri.toString(); status = "Closing odometer photo captured" }.onFailure { status = "Camera failed: ${it.message}" }
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text("CAPTURE CLOSING ODOMETER") }
+        OutlinedTextField(value = tripCount, onValueChange = { tripCount = it.filter(Char::isDigit) }, label = { Text("Reported trip count") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = income, onValueChange = { income = it }, label = { Text("Reported income (₹)") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth())
         Text(status)
         if (gps?.isUsable() == true) Text("GPS ready • ±${gps!!.accuracyMeters.toInt()} m")
-
-        Button(
-            enabled = !busy && closeOdo != null && closeOdo >= startOdometer && count != null && count >= 0 && reportedIncome != null && reportedIncome >= 0 && photoPath != null && gps?.isUsable() == true,
-            onClick = {
-                val odo = closeOdo ?: return@Button
-                val trips = count ?: return@Button
-                val amount = reportedIncome ?: return@Button
-                val location = gps ?: return@Button
-                busy = true
-                scope.launch {
-                    try {
-                        repository.queueCloseSession(
-                            sessionId, driverId, vehicleId, odo,
-                            location.latitude, location.longitude, location.accuracyMeters,
-                            java.time.Instant.ofEpochMilli(location.capturedAtEpochMs).toString(),
-                            null, trips, amount, notes.ifBlank { null }
-                        )
-                        status = "Session closed locally • pending sync"
-                        onClosed()
-                    } catch (e: Exception) {
-                        status = e.message ?: "Unable to close session"
-                    } finally { busy = false }
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text(if (busy) "CLOSING…" else "CLOSE SESSION") }
+        Button(enabled = !busy && closeOdo != null && closeOdo >= startOdometer && count != null && count >= 0 && reportedIncome != null && reportedIncome >= 0 && photoPath != null && gps?.isUsable() == true, onClick = {
+            val odo = closeOdo ?: return@Button
+            val trips = count ?: return@Button
+            val amount = reportedIncome ?: return@Button
+            val location = gps ?: return@Button
+            val photo = photoPath ?: return@Button
+            busy = true
+            scope.launch {
+                try {
+                    repository.queueCloseSession(sessionId, driverId, vehicleId, odo, location.latitude, location.longitude, location.accuracyMeters, java.time.Instant.ofEpochMilli(location.capturedAtEpochMs).toString(), photo, trips, amount, notes.ifBlank { null })
+                    status = "Session closed locally • photo queued • pending sync"
+                    onClosed()
+                } catch (e: Exception) { status = e.message ?: "Unable to close session" } finally { busy = false }
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "CLOSING…" else "CLOSE SESSION") }
         Button(enabled = !busy, onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("CANCEL") }
     }
 }
