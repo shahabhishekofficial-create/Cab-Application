@@ -30,14 +30,17 @@ class AuthRepository(private val context: Context) {
         "/auth/v1/token?grant_type=password", "{\"email\":${Json.encodeToString(email)},\"password\":${Json.encodeToString(password)}}"
     ).onSuccess { save(it) }
 
-    fun refreshIfNeeded(): Result<AuthSession?> {
+    fun refreshIfNeeded(force: Boolean = false): Result<AuthSession?> {
         val current = session() ?: return Result.success(null)
-        val expiresAt = current.expiresAt ?: return Result.success(current)
-        if (expiresAt - System.currentTimeMillis() > 60_000L) return Result.success(current)
-        return requestToken("/auth/v1/token?grant_type=refresh_token", "{\"refresh_token\":${Json.encodeToString(current.refreshToken)}}")
-            .map { it.copy(refreshToken = it.refreshToken.ifBlank { current.refreshToken }) }
-            .onSuccess { save(it) }
+        val expiresAt = current.expiresAt ?: return if (force) refresh(current) else Result.success(current)
+        if (!force && expiresAt - System.currentTimeMillis() > 60_000L) return Result.success(current)
+        return refresh(current)
     }
+
+    private fun refresh(current: AuthSession): Result<AuthSession?> = requestToken(
+        "/auth/v1/token?grant_type=refresh_token", "{\"refresh_token\":${Json.encodeToString(current.refreshToken)}}"
+    ).map { it.copy(refreshToken = it.refreshToken.ifBlank { current.refreshToken }) }
+        .onSuccess { save(it) }
 
     fun logout() { prefs.edit().remove("session").apply() }
 
