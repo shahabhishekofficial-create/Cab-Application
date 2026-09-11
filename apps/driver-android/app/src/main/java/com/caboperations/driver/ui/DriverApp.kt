@@ -1,5 +1,7 @@
 package com.caboperations.driver.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -7,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.caboperations.driver.BuildConfig
 import com.caboperations.driver.auth.AuthRepository
 import com.caboperations.driver.auth.DriverContextRepository
@@ -22,6 +25,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
+
+private fun driverPermissionsGranted(context: android.content.Context): Boolean =
+    ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+        (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
 
 @Composable
 fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
@@ -40,6 +48,8 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
     var displayName by remember { mutableStateOf("") }
     var registration by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+
+    fun authenticatedDestination(): String = if (driverPermissionsGranted(context)) "HOME" else "PERMISSIONS"
 
     fun refreshPending() {
         scope.launch {
@@ -72,7 +82,6 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
             restoreLocalSessionIfValid()
             return true
         }
-
         if (identity.driverId != null && identity.vehicleId != null) {
             restoreLocalSessionIfValid()
             status = "Offline mode • server unavailable; local entries remain safe"
@@ -89,7 +98,7 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
         val result = withContext(Dispatchers.IO) { auth.consumeGoogleCallback(uri) }
         if (result.isSuccess && loadAuthenticatedDriver()) {
             status = "Google login successful • assignment loaded"
-            screen = "HOME"
+            screen = authenticatedDestination()
         } else {
             auth.logout()
             identity.clearAssignment()
@@ -101,7 +110,7 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
 
     LaunchedEffect(Unit) {
         if (oauthUri == null) {
-            if (loadAuthenticatedDriver()) screen = "HOME" else { auth.logout(); identity.clearAssignment(); sessionState.close(); screen = "LOGIN" }
+            if (loadAuthenticatedDriver()) screen = authenticatedDestination() else { auth.logout(); identity.clearAssignment(); sessionState.close(); screen = "LOGIN" }
         }
     }
     LaunchedEffect(screen) { refreshPending() }
@@ -111,10 +120,11 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
             screen == "LOADING" -> Box(Modifier.fillMaxSize().padding(24.dp)) { CircularProgressIndicator() }
             screen == "LOGIN" -> LoginScreen(auth) {
                 scope.launch {
-                    if (loadAuthenticatedDriver()) { status = "Logged in • assignment loaded"; screen = "HOME" }
+                    if (loadAuthenticatedDriver()) { status = "Logged in • assignment loaded"; screen = authenticatedDestination() }
                     else { auth.logout(); identity.clearAssignment(); sessionState.close(); status = "Login succeeded but no active driver assignment" }
                 }
             }
+            screen == "PERMISSIONS" -> PermissionGateScreen(onReady = { screen = "HOME" })
             screen == "START" && identity.driverId != null && identity.vehicleId != null -> SessionStartScreen(
                 driverId = identity.driverId!!, vehicleId = identity.vehicleId!!,
                 onStart = { odo: Double, gps: LocationSnapshot, photo: String, ocr: OdometerOcrResult, decision: OdometerVerifier.Decision ->
@@ -149,7 +159,7 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
                             if (exhaustedCount > 0) Text("Sync attention required: $exhaustedCount")
                         }
                     }
-                    if (currentSession == null) Button({ screen = "START" }, Modifier.fillMaxWidth()) { Text("START SESSION") } else {
+                    if (currentSession == null) Button({ screen = if (driverPermissionsGranted(context)) "START" else "PERMISSIONS" }, Modifier.fillMaxWidth()) { Text("START SESSION") } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { Button({ entryType = "TRIP"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("ADD TRIP") }; Button({ entryType = "FUEL"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("FUEL") } }
                         OutlinedButton({ entryType = "EXPENSE"; screen = "ENTRY" }, Modifier.fillMaxWidth()) { Text("EXPENSE") }
                         OutlinedButton({ screen = "CLOSE" }, Modifier.fillMaxWidth()) { Text("CLOSE SESSION") }
