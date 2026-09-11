@@ -61,23 +61,24 @@ export async function registerAdminDriverRoutes(app: FastifyInstance): Promise<v
       const params = idSchema.safeParse(request.params);
       const parsed = updateDriverSchema.safeParse(request.body);
       if (!params.success || !parsed.success) return reply.code(400).send({ error: 'VALIDATION_ERROR', details: [...(params.success ? [] : params.error.issues), ...(parsed.success ? [] : parsed.error.issues)] });
-      const supabase = getSupabaseAdmin();
-      const driverId = params.data.driverId;
-      const { data: driver, error: driverError } = await supabase.from('drivers').select('id,user_id').eq('id', driverId).maybeSingle();
-      if (driverError) throw driverError;
-      if (!driver) return reply.code(404).send({ error: 'DRIVER_NOT_FOUND' });
+
       const input = parsed.data;
-      const { data: oldUser, error: oldUserError } = await supabase.from('app_users').select('id,display_name,phone,is_active').eq('id', driver.user_id).single();
-      if (oldUserError) throw oldUserError;
-      const { data: oldDriver, error: oldDriverError } = await supabase.from('drivers').select('employee_code,license_number,license_expiry').eq('id', driverId).single();
-      if (oldDriverError) throw oldDriverError;
-      const { error: userUpdateError } = await supabase.from('app_users').update({ display_name: input.displayName.trim(), phone: input.phone?.trim() || null, is_active: input.isActive, updated_at: new Date().toISOString() }).eq('id', driver.user_id);
-      if (userUpdateError) throw userUpdateError;
-      const { error: driverUpdateError } = await supabase.from('drivers').update({ employee_code: input.employeeCode?.trim() || null, license_number: input.licenseNumber?.trim() || null, license_expiry: input.licenseExpiry || null, updated_at: new Date().toISOString() }).eq('id', driverId);
-      if (driverUpdateError) throw driverUpdateError;
-      const { error: auditError } = await supabase.from('audit_logs').insert({ actor_user_id: admin.userId, entity_type: 'DRIVER', entity_id: driverId, action: 'UPDATE_PROFILE', old_data: { ...oldUser, ...oldDriver }, new_data: { ...input }, reason: 'Admin driver profile edit' });
-      if (auditError) throw auditError;
-      return { updated: true, driverId };
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase.rpc('update_driver_profile', {
+        p_driver_id: params.data.driverId,
+        p_display_name: input.displayName.trim(),
+        p_phone: input.phone?.trim() || null,
+        p_employee_code: input.employeeCode?.trim() || null,
+        p_license_number: input.licenseNumber?.trim() || null,
+        p_license_expiry: input.licenseExpiry || null,
+        p_is_active: input.isActive,
+        p_actor_user_id: admin.userId,
+      });
+      if (error) {
+        if (error.message.includes('DRIVER_NOT_FOUND')) return reply.code(404).send({ error: 'DRIVER_NOT_FOUND' });
+        throw error;
+      }
+      return data;
     } catch (error) {
       const mapped = adminAuthErrorResponse(error);
       if (mapped) return reply.code(mapped.status).send(mapped.body);
