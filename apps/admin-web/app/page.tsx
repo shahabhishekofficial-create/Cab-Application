@@ -1,90 +1,23 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getSupabaseBrowserClient } from '../lib/supabase-browser';
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3000';
-type Metrics = { sessions: number; openSessions: number; trips: number; revenue: number; runningKm: number; fuelCost: number; expenses: number; netOperatingResult: number };
-
+type Metrics = { sessions:number; openSessions:number; trips:number; fuelCount:number; expenseCount:number; revenue:number; tripAdditionalCharges:number; fuelCost:number; expenses:number; totalCosts:number; runningKm:number; netOperatingResult:number };
 type MetricsPayload = Record<string, unknown>;
-
-function numberValue(payload: MetricsPayload, ...keys: string[]): number {
-  for (const key of keys) {
-    const value = payload[key];
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string' && value.trim() !== '') {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return 0;
-}
-
-function normalizeMetrics(payload: unknown): Metrics {
-  const data = payload && typeof payload === 'object' ? payload as MetricsPayload : {};
-  return {
-    sessions: numberValue(data, 'sessions'),
-    openSessions: numberValue(data, 'openSessions', 'open_sessions'),
-    trips: numberValue(data, 'trips'),
-    revenue: numberValue(data, 'revenue'),
-    runningKm: numberValue(data, 'runningKm', 'running_km'),
-    fuelCost: numberValue(data, 'fuelCost', 'fuel_cost'),
-    expenses: numberValue(data, 'expenses'),
-    netOperatingResult: numberValue(data, 'netOperatingResult', 'net_operating_result'),
-  };
-}
+function numberValue(payload: MetricsPayload, ...keys: string[]): number { for (const key of keys) { const value=payload[key]; if(typeof value==='number'&&Number.isFinite(value))return value; if(typeof value==='string'&&value.trim()!==''){const n=Number(value);if(Number.isFinite(n))return n;} } return 0; }
+function normalizeMetrics(payload: unknown): Metrics { const d=payload&&typeof payload==='object'?payload as MetricsPayload:{}; return { sessions:numberValue(d,'sessions'), openSessions:numberValue(d,'openSessions','open_sessions'), trips:numberValue(d,'trips'), fuelCount:numberValue(d,'fuelCount','fuel_count'), expenseCount:numberValue(d,'expenseCount','expense_count'), revenue:numberValue(d,'revenue'), tripAdditionalCharges:numberValue(d,'tripAdditionalCharges','trip_additional_charges'), fuelCost:numberValue(d,'fuelCost','fuel_cost'), expenses:numberValue(d,'expenses'), totalCosts:numberValue(d,'totalCosts','total_costs'), runningKm:numberValue(d,'runningKm','running_km'), netOperatingResult:numberValue(d,'netOperatingResult','net_operating_result') }; }
 
 export default function Dashboard() {
-  const [email, setEmail] = useState('');
-  const [checkingAuth, setCheckingAuth] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const supabase = getSupabaseBrowserClient();
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { window.location.replace('/login'); return; }
-      setEmail(session.user.email ?? '');
-      try {
-        const response = await fetch(`${API}/v1/admin/metrics`, { headers: { Authorization: `Bearer ${session.access_token}` } });
-        if (response.status === 401 || response.status === 403) { await supabase.auth.signOut(); window.location.replace('/login'); return; }
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json();
-        if (!cancelled) setMetrics(normalizeMetrics(payload));
-      } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : 'Unable to load dashboard'); }
-      finally { if (!cancelled) { setLoading(false); setCheckingAuth(false); } }
-    })();
-    return () => { cancelled = true; };
-  }, [supabase]);
-
-  async function signOut() { await supabase.auth.signOut(); window.location.replace('/login'); }
-
-  const cards = metrics ? [
-    ['Sessions', String(metrics.sessions)], ['Revenue', `₹${metrics.revenue.toFixed(2)}`], ['Trips', String(metrics.trips)],
-    ['Running KM', `${metrics.runningKm.toFixed(1)} km`], ['Fuel Cost', `₹${metrics.fuelCost.toFixed(2)}`], ['Expenses', `₹${metrics.expenses.toFixed(2)}`],
-    ['Net Operating Result', `₹${metrics.netOperatingResult.toFixed(2)}`], ['Open Sessions', String(metrics.openSessions)],
-  ] : [];
-
-  if (checkingAuth) return <main style={{ padding: 32, fontFamily: 'system-ui' }}>Checking admin session…</main>;
-
-  return (
-    <main style={{ maxWidth: 1100, margin: '0 auto', padding: 32, fontFamily: 'system-ui' }}>
-      <header style={{ marginBottom: 32, display:'flex', justifyContent:'space-between', gap:20, alignItems:'start' }}>
-        <div><p style={{ margin: 0, opacity: .6 }}>Cab Operations Management System</p><h1 style={{ marginTop: 8 }}>Operations Dashboard</h1><small>{email}</small></div>
-        <button onClick={signOut}>Sign out</button>
-      </header>
-      {loading && <p>Loading live metrics…</p>}
-      {error && <p role="alert">Dashboard data unavailable: {error}</p>}
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 16 }}>{cards.map(([label, value]) => <article key={label} style={{ border: '1px solid #ddd', borderRadius: 12, padding: 20 }}><div style={{ opacity: .65 }}>{label}</div><strong style={{ display: 'block', fontSize: 26, marginTop: 8 }}>{value}</strong></article>)}</section>
-      <section style={{ marginTop: 32, display:'flex', gap:12, flexWrap:'wrap' }}>
-        <Link href="/drivers" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Drivers & Vehicles</Link>
-        <Link href="/sessions" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Sessions</Link>
-        <Link href="/exports" style={{ border:'1px solid #ddd', borderRadius:10, padding:'10px 14px', textDecoration:'none' }}>Exports</Link>
-      </section>
-    </main>
-  );
+  const [email,setEmail]=useState(''); const [checkingAuth,setCheckingAuth]=useState(true); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [metrics,setMetrics]=useState<Metrics|null>(null); const [lastUpdated,setLastUpdated]=useState('');
+  const supabase=getSupabaseBrowserClient();
+  const loadMetrics=useCallback(async(showSpinner=true)=>{ if(showSpinner)setLoading(true); setError(''); try { const {data:{session}}=await supabase.auth.getSession(); if(!session){window.location.replace('/login');return;} setEmail(session.user.email??''); const response=await fetch(`${API}/v1/admin/metrics`,{headers:{Authorization:`Bearer ${session.access_token}`},cache:'no-store'}); if(response.status===401||response.status===403){await supabase.auth.signOut();window.location.replace('/login');return;} if(!response.ok)throw new Error(`HTTP ${response.status}`); const payload=await response.json(); setMetrics(normalizeMetrics(payload)); setLastUpdated(new Date().toLocaleTimeString()); } catch(e){setError(e instanceof Error?e.message:'Unable to load dashboard');} finally{setLoading(false);setCheckingAuth(false);} },[supabase]);
+  useEffect(()=>{void loadMetrics(); const timer=window.setInterval(()=>void loadMetrics(false),15000); return()=>window.clearInterval(timer);},[loadMetrics]);
+  async function signOut(){await supabase.auth.signOut();window.location.replace('/login');}
+  const money=(n:number)=>`₹${n.toFixed(2)}`;
+  const cards=metrics?[['Sessions',String(metrics.sessions)],['Open Sessions',String(metrics.openSessions)],['Trips',String(metrics.trips)],['Fuel Entries',String(metrics.fuelCount)],['Expense Entries',String(metrics.expenseCount)],['Gross Revenue',money(metrics.revenue)],['Trip Charges',money(metrics.tripAdditionalCharges)],['Fuel Cost',money(metrics.fuelCost)],['Other Expenses',money(metrics.expenses)],['Total Costs',money(metrics.totalCosts)],['Running KM',`${metrics.runningKm.toFixed(1)} km`],['Net Operating Result',money(metrics.netOperatingResult)]]:[];
+  if(checkingAuth)return <main style={{padding:32,fontFamily:'system-ui'}}>Checking admin session…</main>;
+  return <main style={{maxWidth:1200,margin:'0 auto',padding:32,fontFamily:'system-ui'}}><header style={{marginBottom:32,display:'flex',justifyContent:'space-between',gap:20,alignItems:'start'}}><div><p style={{margin:0,opacity:.6}}>Cab Operations Management System</p><h1 style={{marginTop:8}}>Operations Dashboard</h1><small>{email}</small>{lastUpdated&&<small style={{display:'block',opacity:.6,marginTop:4}}>Updated {lastUpdated} • refreshes automatically</small>}</div><div style={{display:'flex',gap:8}}><button onClick={()=>void loadMetrics()}>Refresh</button><button onClick={signOut}>Sign out</button></div></header>{loading&&<p>Loading live metrics…</p>}{error&&<p role="alert">Dashboard data unavailable: {error} <button onClick={()=>void loadMetrics()}>Retry</button></p>}<section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:16}}>{cards.map(([label,value])=><article key={label} style={{border:'1px solid #ddd',borderRadius:12,padding:20}}><div style={{opacity:.65}}>{label}</div><strong style={{display:'block',fontSize:24,marginTop:8}}>{value}</strong></article>)}</section><section style={{marginTop:32,display:'flex',gap:12,flexWrap:'wrap'}}><Link href="/drivers" style={{border:'1px solid #ddd',borderRadius:10,padding:'10px 14px',textDecoration:'none'}}>Drivers & Vehicles</Link><Link href="/sessions" style={{border:'1px solid #ddd',borderRadius:10,padding:'10px 14px',textDecoration:'none'}}>Sessions</Link><Link href="/exports" style={{border:'1px solid #ddd',borderRadius:10,padding:'10px 14px',textDecoration:'none'}}>Exports</Link></section></main>;
 }
