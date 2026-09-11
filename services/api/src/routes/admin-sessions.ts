@@ -3,69 +3,13 @@ import { z } from 'zod';
 import { getSupabaseAdmin } from '../db/supabase.js';
 import { adminAuthErrorResponse, requireAdmin } from '../auth/admin-auth.js';
 
-function boundedInteger(value: string | undefined, fallback: number, min: number, max: number): number {
-  if (value === undefined || value.trim() === '') return fallback;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed)) throw new Error('INVALID_PAGINATION');
-  return Math.min(Math.max(parsed, min), max);
-}
-
-const idSchema = z.string().uuid();
+function boundedInteger(value: string | undefined, fallback: number, min: number, max: number): number { if(value===undefined||value.trim()==='')return fallback; const parsed=Number(value); if(!Number.isInteger(parsed))throw new Error('INVALID_PAGINATION'); return Math.min(Math.max(parsed,min),max); }
+const idSchema=z.string().uuid();
+const listQuerySchema=z.object({ limit:z.string().optional(), offset:z.string().optional(), status:z.enum(['OPEN','CLOSED']).optional(), driverId:idSchema.optional(), vehicleId:idSchema.optional(), from:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+function validDate(value?:string){if(!value)return true;const d=new Date(`${value}T00:00:00Z`);return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===value;}
 
 export async function registerAdminSessionRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/v1/admin/sessions/:sessionId', async (request, reply) => {
-    try {
-      await requireAdmin(request);
-      const parsed = idSchema.safeParse((request.params as { sessionId?: string }).sessionId);
-      if (!parsed.success) return reply.code(400).send({ error: 'INVALID_SESSION_ID' });
-      const sessionId = parsed.data;
-      const supabase = getSupabaseAdmin();
-      const { data: session, error: sessionError } = await supabase
-        .from('sessions')
-        .select('id,session_date,status,started_at,closed_at,start_odometer,close_odometer,start_lat,start_lng,start_accuracy_m,start_gps_at,close_lat,close_lng,close_accuracy_m,close_gps_at,driver_id,vehicle_id,device_id,notes,reconciliations(*)')
-        .eq('id', sessionId).maybeSingle();
-      if (sessionError) throw sessionError;
-      if (!session) return reply.code(404).send({ error: 'SESSION_NOT_FOUND' });
-      const [{ data: trips, error: tripsError }, { data: fuel, error: fuelError }, { data: expenses, error: expensesError }] = await Promise.all([
-        supabase.from('trips').select('*').eq('session_id', sessionId).order('started_at', { ascending: true }),
-        supabase.from('fuel_transactions').select('*').eq('session_id', sessionId).order('recorded_at', { ascending: true }),
-        supabase.from('expenses').select('*').eq('session_id', sessionId).order('recorded_at', { ascending: true }),
-      ]);
-      if (tripsError) throw tripsError;
-      if (fuelError) throw fuelError;
-      if (expensesError) throw expensesError;
-      return { session, trips: trips ?? [], fuel: fuel ?? [], expenses: expenses ?? [] };
-    } catch (error) {
-      const mapped = adminAuthErrorResponse(error);
-      if (mapped) return reply.code(mapped.status).send(mapped.body);
-      throw error;
-    }
-  });
+  app.get('/v1/admin/sessions/:sessionId', async (request,reply)=>{try{await requireAdmin(request);const parsed=idSchema.safeParse((request.params as {sessionId?:string}).sessionId);if(!parsed.success)return reply.code(400).send({error:'INVALID_SESSION_ID'});const supabase=getSupabaseAdmin();const {data:session,error:sessionError}=await supabase.from('sessions').select('id,session_date,status,started_at,closed_at,start_odometer,close_odometer,start_lat,start_lng,start_accuracy_m,start_gps_at,close_lat,close_lng,close_accuracy_m,close_gps_at,driver_id,vehicle_id,device_id,notes,start_odometer_file_id,close_odometer_file_id,reconciliations(*)').eq('id',parsed.data).maybeSingle();if(sessionError)throw sessionError;if(!session)return reply.code(404).send({error:'SESSION_NOT_FOUND'});const [{data:trips,error:tripsError},{data:fuel,error:fuelError},{data:expenses,error:expensesError}]=await Promise.all([supabase.from('trips').select('*').eq('session_id',parsed.data).order('started_at',{ascending:true}),supabase.from('fuel_transactions').select('*').eq('session_id',parsed.data).order('recorded_at',{ascending:true}),supabase.from('expenses').select('*').eq('session_id',parsed.data).order('recorded_at',{ascending:true})]);if(tripsError)throw tripsError;if(fuelError)throw fuelError;if(expensesError)throw expensesError;return{session,trips:trips??[],fuel:fuel??[],expenses:expenses??[]};}catch(error){const mapped=adminAuthErrorResponse(error);if(mapped)return reply.code(mapped.status).send(mapped.body);throw error;}});
 
-  app.get('/v1/admin/sessions', async (request, reply) => {
-    try {
-      await requireAdmin(request);
-      const query = request.query as Record<string, string | undefined>;
-      const limit = boundedInteger(query.limit, 50, 1, 200);
-      const offset = boundedInteger(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
-      let builder = getSupabaseAdmin()
-        .from('sessions')
-        .select('id,session_date,status,started_at,closed_at,start_odometer,close_odometer,driver_id,vehicle_id,reconciliations(status,reported_trip_count,reported_income,system_trip_count,system_income,unallocated_km)', { count: 'exact' })
-        .order('started_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-      if (query.status) builder = builder.eq('status', query.status);
-      if (query.driverId) builder = builder.eq('driver_id', query.driverId);
-      if (query.vehicleId) builder = builder.eq('vehicle_id', query.vehicleId);
-      if (query.from) builder = builder.gte('session_date', query.from);
-      if (query.to) builder = builder.lte('session_date', query.to);
-      const { data, error, count } = await builder;
-      if (error) throw error;
-      return { sessions: data ?? [], total: count ?? 0, limit, offset };
-    } catch (error) {
-      const mapped = adminAuthErrorResponse(error);
-      if (mapped) return reply.code(mapped.status).send(mapped.body);
-      if (error instanceof Error && error.message === 'INVALID_PAGINATION') return reply.code(400).send({ error: 'INVALID_PAGINATION' });
-      throw error;
-    }
-  });
+  app.get('/v1/admin/sessions', async(request,reply)=>{try{await requireAdmin(request);const parsed=listQuerySchema.safeParse(request.query??{});if(!parsed.success)return reply.code(400).send({error:'VALIDATION_ERROR',details:parsed.error.issues});const q=parsed.data;if(!validDate(q.from)||!validDate(q.to))return reply.code(400).send({error:'INVALID_DATE_FILTER'});if(q.from&&q.to&&q.from>q.to)return reply.code(400).send({error:'INVALID_DATE_RANGE'});const limit=boundedInteger(q.limit,50,1,200);const offset=boundedInteger(q.offset,0,0,Number.MAX_SAFE_INTEGER);let builder=getSupabaseAdmin().from('sessions').select('id,session_date,status,started_at,closed_at,start_odometer,close_odometer,driver_id,vehicle_id,reconciliations(status,reported_trip_count,reported_income,system_trip_count,system_income,unallocated_km)',{count:'exact'}).order('started_at',{ascending:false}).range(offset,offset+limit-1);if(q.status)builder=builder.eq('status',q.status);if(q.driverId)builder=builder.eq('driver_id',q.driverId);if(q.vehicleId)builder=builder.eq('vehicle_id',q.vehicleId);if(q.from)builder=builder.gte('session_date',q.from);if(q.to)builder=builder.lte('session_date',q.to);const{data,error,count}=await builder;if(error)throw error;return{sessions:data??[],total:count??0,limit,offset};}catch(error){const mapped=adminAuthErrorResponse(error);if(mapped)return reply.code(mapped.status).send(mapped.body);if(error instanceof Error&&error.message==='INVALID_PAGINATION')return reply.code(400).send({error:'INVALID_PAGINATION'});throw error;}});
 }
