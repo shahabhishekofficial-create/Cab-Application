@@ -7,6 +7,34 @@ import { getSupabaseBrowserClient } from '../lib/supabase-browser';
 const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3000';
 type Metrics = { sessions: number; openSessions: number; trips: number; revenue: number; runningKm: number; fuelCost: number; expenses: number; netOperatingResult: number };
 
+type MetricsPayload = Record<string, unknown>;
+
+function numberValue(payload: MetricsPayload, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return 0;
+}
+
+function normalizeMetrics(payload: unknown): Metrics {
+  const data = payload && typeof payload === 'object' ? payload as MetricsPayload : {};
+  return {
+    sessions: numberValue(data, 'sessions'),
+    openSessions: numberValue(data, 'openSessions', 'open_sessions'),
+    trips: numberValue(data, 'trips'),
+    revenue: numberValue(data, 'revenue'),
+    runningKm: numberValue(data, 'runningKm', 'running_km'),
+    fuelCost: numberValue(data, 'fuelCost', 'fuel_cost'),
+    expenses: numberValue(data, 'expenses'),
+    netOperatingResult: numberValue(data, 'netOperatingResult', 'net_operating_result'),
+  };
+}
+
 export default function Dashboard() {
   const [email, setEmail] = useState('');
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -25,7 +53,8 @@ export default function Dashboard() {
         const response = await fetch(`${API}/v1/admin/metrics`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         if (response.status === 401 || response.status === 403) { await supabase.auth.signOut(); window.location.replace('/login'); return; }
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        if (!cancelled) setMetrics(await response.json());
+        const payload = await response.json();
+        if (!cancelled) setMetrics(normalizeMetrics(payload));
       } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : 'Unable to load dashboard'); }
       finally { if (!cancelled) { setLoading(false); setCheckingAuth(false); } }
     })();
