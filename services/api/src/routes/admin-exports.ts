@@ -16,17 +16,18 @@ type ExportConfig = { table: string; columns: string; dateColumn: string };
 const PAGE_SIZE = 1000;
 
 function csvValue(value: unknown): string {
-  const text = value == null ? '' : String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  let text = value == null ? '' : String(value);
+  // Prevent Excel/Sheets formula execution when exported data starts with a
+  // formula-triggering character. The apostrophe is displayed as data, not code.
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function parseDateFilter(value: string | undefined, field: string): string | undefined {
   if (value === undefined || value.trim() === '') return undefined;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`INVALID_DATE_FILTER:${field}`);
   const parsed = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
-    throw new Error(`INVALID_DATE_FILTER:${field}`);
-  }
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new Error(`INVALID_DATE_FILTER:${field}`);
   return value;
 }
 
@@ -50,10 +51,7 @@ export async function registerAdminExportRoutes(app: FastifyInstance): Promise<v
 
       const rows: unknown[] = [];
       for (let offset = 0; ; offset += PAGE_SIZE) {
-        let builder = getSupabaseAdmin()
-          .from(config.table)
-          .select(config.columns)
-          .range(offset, offset + PAGE_SIZE - 1);
+        let builder = getSupabaseAdmin().from(config.table).select(config.columns).range(offset, offset + PAGE_SIZE - 1);
         if (from) builder = builder.gte(config.dateColumn, from);
         if (to) builder = builder.lt(config.dateColumn, nextDate(to));
         const { data, error } = await builder;
@@ -74,9 +72,7 @@ export async function registerAdminExportRoutes(app: FastifyInstance): Promise<v
     } catch (error) {
       const mapped = adminAuthErrorResponse(error);
       if (mapped) return reply.code(mapped.status).send(mapped.body);
-      if (error instanceof Error && error.message.startsWith('INVALID_DATE_FILTER:')) {
-        return reply.code(400).send({ error: 'INVALID_DATE_FILTER' });
-      }
+      if (error instanceof Error && error.message.startsWith('INVALID_DATE_FILTER:')) return reply.code(400).send({ error: 'INVALID_DATE_FILTER' });
       throw error;
     }
   });
