@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -84,7 +86,7 @@ fun SessionStartScreen(
     val verification = if (manual != null && ocr != null) OdometerVerifier.compare(manual, ocr!!.reading, ocr!!.confidence) else null
     val canOpen = !busy && manual != null && manual >= 0 && photoPath != null && gps?.isUsable() == true && ocr != null
 
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("START SESSION")
         Text("Vehicle: $vehicleId")
         Text("Driver: $driverId")
