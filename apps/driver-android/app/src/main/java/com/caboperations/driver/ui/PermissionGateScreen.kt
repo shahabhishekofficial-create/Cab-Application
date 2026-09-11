@@ -20,6 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 private fun requiredPermissionsGranted(context: android.content.Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
@@ -29,6 +32,7 @@ private fun requiredPermissionsGranted(context: android.content.Context): Boolea
 @Composable
 fun PermissionGateScreen(onReady: () -> Unit) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var granted by remember { mutableStateOf(requiredPermissionsGranted(context)) }
     var message by remember { mutableStateOf("") }
 
@@ -37,7 +41,13 @@ fun PermissionGateScreen(onReady: () -> Unit) {
         message = if (granted) "All required permissions granted." else "Camera and location permissions are required to start a cab session."
     }
 
-    LaunchedEffect(Unit) { granted = requiredPermissionsGranted(context) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) granted = requiredPermissionsGranted(context)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
