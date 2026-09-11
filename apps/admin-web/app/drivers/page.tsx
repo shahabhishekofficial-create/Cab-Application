@@ -1,70 +1,34 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { getSupabaseBrowserClient } from '../../lib/supabase-browser';
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3000';
 
+type Driver = { id:string; email:string|null; user:{display_name:string;phone:string|null;is_active:boolean}|null; employee_code:string|null; license_number:string|null; license_expiry:string|null; vehicle:{registration_number:string;make:string;model:string;variant:string|null;fuel_type:string;current_odometer:number|string;status:string}|null };
+
 export default function DriversPage() {
-  const [form, setForm] = useState({ email: '', password: '', displayName: '', phone: '', employeeCode: '', licenseNumber: '', registrationNumber: '', make: 'Hyundai', model: 'Aura', variant: '', fuelType: 'CNG', currentOdometer: '0' });
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [drivers,setDrivers]=useState<Driver[]>([]); const [selected,setSelected]=useState<Driver|null>(null); const [loading,setLoading]=useState(true); const [busy,setBusy]=useState(false); const [showCreate,setShowCreate]=useState(false); const [message,setMessage]=useState(''); const [error,setError]=useState('');
+  const [form,setForm]=useState({email:'',password:'',displayName:'',phone:'',employeeCode:'',licenseNumber:'',registrationNumber:'',make:'Hyundai',model:'Aura',variant:'',fuelType:'CNG',currentOdometer:'0'});
+  const supabase=getSupabaseBrowserClient();
+  const update=(key:keyof typeof form,value:string)=>setForm(v=>({...v,[key]:value}));
 
-  function update(key: keyof typeof form, value: string) { setForm(current => ({ ...current, [key]: value })); }
+  async function token(){const {data:{session}}=await supabase.auth.getSession(); if(!session?.access_token){window.location.replace('/login');return null;} return session.access_token;}
+  async function load(){setLoading(true);setError('');try{const t=await token();if(!t)return;const r=await fetch(`${API}/v1/admin/drivers`,{headers:{Authorization:`Bearer ${t}`}});const d=await r.json().catch(()=>({}));if(r.status===401||r.status===403){await supabase.auth.signOut();window.location.replace('/login');return;}if(!r.ok)throw new Error(d.message||d.error||`HTTP ${r.status}`);setDrivers(d.drivers??[]);}catch(e){setError(e instanceof Error?e.message:'Unable to load drivers');}finally{setLoading(false);}}
+  useEffect(()=>{load();},[]);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError(''); setMessage('');
-    try {
-      const { data: { session } } = await getSupabaseBrowserClient().auth.getSession();
-      if (!session?.access_token) { window.location.replace('/login'); return; }
-      const response = await fetch(`${API}/v1/admin/drivers`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ ...form, phone: form.phone || null, employeeCode: form.employeeCode || null, licenseNumber: form.licenseNumber || null, variant: form.variant || null, currentOdometer: Number(form.currentOdometer) }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (response.status === 401 || response.status === 403) { await getSupabaseBrowserClient().auth.signOut(); window.location.replace('/login'); return; }
-      if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
-      setMessage(`Driver created. Vehicle ${data.registrationNumber} is assigned and ready.`);
-      setForm(current => ({ ...current, email: '', password: '', displayName: '', phone: '', employeeCode: '', licenseNumber: '', registrationNumber: '', variant: '', currentOdometer: '0' }));
-      setShowAdvanced(false);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to create driver'); }
-    finally { setBusy(false); }
-  }
+  async function create(e:FormEvent){e.preventDefault();setBusy(true);setError('');setMessage('');try{const t=await token();if(!t)return;const r=await fetch(`${API}/v1/admin/drivers`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},body:JSON.stringify({...form,phone:form.phone||null,employeeCode:form.employeeCode||null,licenseNumber:form.licenseNumber||null,variant:form.variant||null,currentOdometer:Number(form.currentOdometer)})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.message||d.error||`HTTP ${r.status}`);setMessage(`Driver created. Vehicle ${d.registrationNumber} is assigned.`);setShowCreate(false);setForm({...form,email:'',password:'',displayName:'',phone:'',employeeCode:'',licenseNumber:'',registrationNumber:'',currentOdometer:'0'});await load();}catch(e){setError(e instanceof Error?e.message:'Unable to create driver');}finally{setBusy(false);}}
 
-  const basicFields: [keyof typeof form, string, string, boolean][] = [
-    ['displayName', 'Driver name', 'text', true], ['email', 'Login email', 'email', true], ['password', 'Temporary password', 'password', true],
-    ['registrationNumber', 'Vehicle registration', 'text', true], ['currentOdometer', 'Current odometer', 'number', true],
-  ];
-  const advancedFields: [keyof typeof form, string, string, boolean][] = [
-    ['phone', 'Phone', 'tel', false], ['employeeCode', 'Employee code', 'text', false], ['licenseNumber', 'License number', 'text', false],
-    ['make', 'Vehicle make', 'text', true], ['model', 'Vehicle model', 'text', true], ['variant', 'Variant', 'text', false], ['fuelType', 'Fuel type', 'text', true],
-  ];
+  function edit(d:Driver){setSelected(d);setForm(v=>({...v,email:d.email??'',password:'',displayName:d.user?.display_name??'',phone:d.user?.phone??'',employeeCode:d.employee_code??'',licenseNumber:d.license_number??'',registrationNumber:d.vehicle?.registration_number??'',make:d.vehicle?.make??'Hyundai',model:d.vehicle?.model??'Aura',variant:d.vehicle?.variant??'',fuelType:d.vehicle?.fuel_type??'CNG',currentOdometer:String(d.vehicle?.current_odometer??0)}));setMessage('');setError('');}
+  async function save(e:FormEvent){e.preventDefault();if(!selected)return;setBusy(true);setError('');setMessage('');try{const t=await token();if(!t)return;const r=await fetch(`${API}/v1/admin/drivers/${selected.id}`,{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},body:JSON.stringify({displayName:form.displayName.trim(),phone:form.phone||null,employeeCode:form.employeeCode||null,licenseNumber:form.licenseNumber||null,licenseExpiry:null,isActive:selected.user?.is_active??true})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.message||d.error||`HTTP ${r.status}`);setMessage('Driver details updated.');setSelected(null);await load();}catch(e){setError(e instanceof Error?e.message:'Unable to update driver');}finally{setBusy(false);}}
 
-  const renderField = ([key, label, type, required]: [keyof typeof form, string, string, boolean]) => (
-    <label key={key}>{label}{required ? ' *' : ' (optional)'}<input required={required} type={type} min={type === 'number' ? '0' : undefined} value={form[key]} onChange={e => update(key, e.target.value)} style={{ display:'block', width:'100%', boxSizing:'border-box', padding:11, marginTop:6 }} /></label>
-  );
-
-  return (
-    <main style={{ maxWidth: 900, margin: '0 auto', padding: 32, fontFamily: 'system-ui' }}>
-      <p><Link href="/">← Dashboard</Link></p><h1>Driver & Vehicle Setup</h1>
-      <p style={{ color: '#666' }}>Create the driver's login, profile, vehicle and active assignment in one step.</p>
-      <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 16, border: '1px solid #ddd', borderRadius: 16, padding: 24 }}>
-        {basicFields.map(renderField)}
-        <div style={{ gridColumn:'1/-1', borderTop:'1px solid #eee', paddingTop:12 }}>
-          <button type="button" onClick={() => setShowAdvanced(value => !value)} style={{ padding:'8px 12px' }}>{showAdvanced ? 'Hide optional details' : 'Add optional driver & vehicle details'}</button>
-        </div>
-        {showAdvanced && advancedFields.map(renderField)}
-        <div style={{ gridColumn:'1/-1', background:'#f7f7f7', borderRadius:10, padding:12 }}>
-          <strong>Vehicle defaults:</strong> Hyundai Aura • CNG. Change them only if needed.
-        </div>
-        <div style={{ gridColumn:'1/-1' }}><button disabled={busy} type="submit" style={{ padding:'12px 18px' }}>{busy ? 'Creating…' : 'Create driver & assign vehicle'}</button></div>
-      </form>
-      {message && <p role="status" style={{ marginTop:20 }}>{message}</p>}
-      {error && <p role="alert" style={{ marginTop:20 }}>{error}</p>}
-    </main>
-  );
+  return <main style={{maxWidth:1100,margin:'0 auto',padding:32,fontFamily:'system-ui'}}>
+    <p><Link href="/">← Dashboard</Link></p><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:16}}><div><h1 style={{marginBottom:6}}>Drivers & Vehicles</h1><p style={{color:'#666',marginTop:0}}>View existing drivers and edit their profile details.</p></div><button onClick={()=>{setShowCreate(v=>!v);setSelected(null);}}>{showCreate?'Close':'＋ Add driver'}</button></div>
+    {message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
+    {showCreate&&<form onSubmit={create} style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:14,border:'1px solid #ddd',borderRadius:16,padding:20,marginBottom:24}}><h3 style={{gridColumn:'1/-1',margin:0}}>Create driver</h3>{[['displayName','Driver name','text'],['email','Login email','email'],['password','Temporary password','password'],['phone','Phone','tel'],['registrationNumber','Vehicle registration','text'],['currentOdometer','Current odometer','number']].map(([k,l,t])=><label key={k}>{l}<input required={k!=='phone'} type={t} min={t==='number'?'0':undefined} value={form[k as keyof typeof form]} onChange={e=>update(k as keyof typeof form,e.target.value)} style={{display:'block',width:'100%',boxSizing:'border-box',padding:10,marginTop:5}}/></label>)}<div style={{gridColumn:'1/-1',fontSize:13,color:'#666'}}>Vehicle defaults: Hyundai Aura • CNG. Optional driver details can be edited after creation.</div><button disabled={busy} type="submit">{busy?'Creating…':'Create driver & assign vehicle'}</button></form>}
+    {loading?<p>Loading drivers…</p>:drivers.length===0?<p>No drivers found.</p>:<div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr>{['Driver','Email','Phone','Vehicle','Status','Action'].map(h=><th key={h} style={{textAlign:'left',borderBottom:'1px solid #ddd',padding:10}}>{h}</th>)}</tr></thead><tbody>{drivers.map(d=><tr key={d.id}><td style={{padding:10}}>{d.user?.display_name??'—'}</td><td style={{padding:10}}>{d.email??'—'}</td><td style={{padding:10}}>{d.user?.phone??'—'}</td><td style={{padding:10}}>{d.vehicle?.registration_number??'Unassigned'}</td><td style={{padding:10}}>{d.user?.is_active?'Active':'Inactive'}</td><td style={{padding:10}}><button onClick={()=>edit(d)}>Edit</button></td></tr>)}</tbody></table></div>}
+    {selected&&<form onSubmit={save} style={{marginTop:24,border:'1px solid #ddd',borderRadius:16,padding:20,display:'grid',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><div><h3 style={{margin:0}}>Edit driver</h3><small>{selected.email}</small></div><button type="button" onClick={()=>setSelected(null)}>Cancel</button></div><label>Driver name<input required value={form.displayName} onChange={e=>update('displayName',e.target.value)} style={{display:'block',width:'100%',boxSizing:'border-box',padding:10,marginTop:5}}/></label><label>Phone<input value={form.phone} onChange={e=>update('phone',e.target.value)} style={{display:'block',width:'100%',boxSizing:'border-box',padding:10,marginTop:5}}/></label><label>Employee code<input value={form.employeeCode} onChange={e=>update('employeeCode',e.target.value)} style={{display:'block',width:'100%',boxSizing:'border-box',padding:10,marginTop:5}}/></label><label>License number<input value={form.licenseNumber} onChange={e=>update('licenseNumber',e.target.value)} style={{display:'block',width:'100%',boxSizing:'border-box',padding:10,marginTop:5}}/></label><p style={{margin:0,color:'#666'}}>Vehicle: {selected.vehicle?.registration_number??'Unassigned'} — vehicle editing/reassignment will be handled separately so existing session history is not accidentally changed.</p><button disabled={busy} type="submit">{busy?'Saving…':'Save changes'}</button></form>}
+  </main>;
 }
