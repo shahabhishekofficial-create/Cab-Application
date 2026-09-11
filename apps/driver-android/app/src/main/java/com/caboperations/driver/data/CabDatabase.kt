@@ -12,14 +12,21 @@ import com.caboperations.driver.sync.SyncPolicy
 @Dao
 interface PendingTransactionDao {
     @Insert suspend fun insert(transaction: PendingTransaction)
-    @Query("SELECT * FROM pending_transactions WHERE synced = 0 AND attempts < ${SyncPolicy.MAX_RETRY_ATTEMPTS} ORDER BY CASE type WHEN 'FILE_UPLOAD' THEN 0 WHEN 'SESSION_START' THEN 1 WHEN 'TRIP' THEN 2 WHEN 'FUEL' THEN 3 WHEN 'EXPENSE' THEN 4 WHEN 'SESSION_CLOSE' THEN 5 ELSE 6 END, createdAt LIMIT ${SyncPolicy.MAX_BATCH_SIZE}")
+
+    // Dependency order is important: session roots first, then their transactions,
+    // then close, and only then dependent file uploads.
+    @Query("SELECT * FROM pending_transactions WHERE synced = 0 AND attempts < ${SyncPolicy.MAX_RETRY_ATTEMPTS} ORDER BY CASE type WHEN 'SESSION_START' THEN 0 WHEN 'TRIP' THEN 10 WHEN 'FUEL' THEN 10 WHEN 'EXPENSE' THEN 10 WHEN 'SESSION_CLOSE' THEN 20 WHEN 'FILE_UPLOAD' THEN 30 ELSE 40 END, createdAt LIMIT ${SyncPolicy.MAX_BATCH_SIZE}")
     suspend fun pending(): List<PendingTransaction>
+
     @Query("UPDATE pending_transactions SET synced = 1, lastError = NULL WHERE clientTransactionId = :id")
     suspend fun markSynced(id: String)
+
     @Query("UPDATE pending_transactions SET attempts = attempts + 1, lastError = :error WHERE clientTransactionId = :id")
     suspend fun markFailed(id: String, error: String)
+
     @Query("SELECT COUNT(*) FROM pending_transactions WHERE synced = 0 AND attempts < ${SyncPolicy.MAX_RETRY_ATTEMPTS}")
     suspend fun pendingCount(): Int
+
     @Query("SELECT COUNT(*) FROM pending_transactions WHERE synced = 0 AND attempts >= ${SyncPolicy.MAX_RETRY_ATTEMPTS}")
     suspend fun exhaustedCount(): Int
 }
