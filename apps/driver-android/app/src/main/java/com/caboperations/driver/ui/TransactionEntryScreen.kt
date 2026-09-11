@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,6 +35,7 @@ import com.caboperations.driver.network.PlatformRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 private enum class EntryType { TRIP, FUEL, EXPENSE }
 private val paymentMethods = listOf("CASH", "UPI", "CARD", "BANK", "OTHER")
@@ -43,7 +45,7 @@ private val tripStatuses = listOf("COMPLETED", "CANCELLED_BY_CUSTOMER", "CANCELL
 fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, vehicleId: String, onSaved: (String) -> Unit, onCancel: () -> Unit) {
     val entryType = runCatching { EntryType.valueOf(type) }.getOrElse { EntryType.TRIP }
     val context = LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     val auth = remember { AuthRepository(context) }
     var startOdo by remember { mutableStateOf("") }
     var endOdo by remember { mutableStateOf("") }
@@ -71,17 +73,25 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
     var error by remember { mutableStateOf("") }
 
     LaunchedEffect(entryType) {
-        auth.refreshIfNeeded().getOrNull()?.accessToken?.let { token ->
-            if (entryType == EntryType.TRIP) {
-                val loaded = withContext(Dispatchers.IO) { PlatformRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
-                platforms = loaded
-                selectedPlatform = loaded.firstOrNull()
-            }
-            if (entryType == EntryType.EXPENSE) {
-                categories = withContext(Dispatchers.IO) { ExpenseCategoryRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
-            }
+        error = ""
+        val token = auth.refreshIfNeeded().getOrNull()?.accessToken
+        if (token == null) {
+            error = "Login session expired. Please log in again."
+            return@LaunchedEffect
+        }
+        if (entryType == EntryType.TRIP) {
+            val loaded = withContext(Dispatchers.IO) { PlatformRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
+            platforms = loaded
+            selectedPlatform = loaded.firstOrNull()
+        }
+        if (entryType == EntryType.EXPENSE) {
+            categories = withContext(Dispatchers.IO) { ExpenseCategoryRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
         }
     }
+
+    val quantityValue = quantity.toDoubleOrNull()
+    val rateValue = rate.toDoubleOrNull()
+    val calculatedFuelAmount = if (quantityValue != null && rateValue != null && quantityValue > 0 && rateValue >= 0) quantityValue * rateValue else null
 
     fun save() {
         if (busy) return
@@ -99,29 +109,31 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
                         require(end >= start) { "Ending odometer cannot be less than starting odometer" }
                         require(gross >= 0) { "Fare cannot be negative" }
                         require(charges >= 0) { "Additional charges cannot be negative" }
-                        TripLocalRepository(context).queueTrip(sessionId, driverId, vehicleId, start, end, gross, status, platformId = selectedPlatform?.id, pickup = pickup.ifBlank { null }, dropoff = dropoff.ifBlank { null }, paymentMethod = payment, additionalCharges = charges, notes = notes.ifBlank { null })
+                        require(status != "COMPLETED" || selectedPlatform != null) { "Select the cab platform" }
+                        TripLocalRepository(context).queueTrip(sessionId, driverId, vehicleId, start, end, gross, status, platformId = selectedPlatform?.id, pickup = pickup.trim().ifBlank { null }, dropoff = dropoff.trim().ifBlank { null }, paymentMethod = payment, additionalCharges = charges, notes = notes.trim().ifBlank { null })
                     }
                     EntryType.FUEL -> {
                         val odo = startOdo.toDoubleOrNull() ?: error("Enter odometer")
-                        val qty = quantity.toDoubleOrNull() ?: error("Enter quantity")
-                        val fuelRate = rate.toDoubleOrNull() ?: error("Enter rate")
-                        val total = amount.toDoubleOrNull() ?: error("Enter amount")
+                        val qty = quantityValue ?: error("Enter quantity")
+                        val fuelRate = rateValue ?: error("Enter rate")
+                        val total = calculatedFuelAmount ?: error("Enter valid quantity and rate")
                         require(odo >= 0) { "Odometer cannot be negative" }
                         require(qty > 0) { "Quantity must be greater than zero" }
                         require(fuelRate >= 0) { "Rate cannot be negative" }
                         require(total > 0) { "Amount must be greater than zero" }
-                        FuelLocalRepository(context).queueFuel(sessionId, driverId, vehicleId, fuelType.trim(), odo, qty, unit.trim(), fuelRate, total, paymentMethod = payment, notes = notes.ifBlank { null })
+                        FuelLocalRepository(context).queueFuel(sessionId, driverId, vehicleId, fuelType.trim(), odo, qty, unit.trim(), fuelRate, total, paymentMethod = payment, notes = notes.trim().ifBlank { null })
                     }
                     EntryType.EXPENSE -> {
                         val total = amount.toDoubleOrNull() ?: error("Enter amount")
                         val odo = startOdo.toDoubleOrNull()
                         require(total > 0) { "Amount must be greater than zero" }
                         require(odo == null || odo >= 0) { "Odometer cannot be negative" }
-                        ExpenseLocalRepository(context).queueExpense(sessionId, driverId, vehicleId, total, categoryId = category?.id, paymentMethod = payment, odometer = odo, notes = notes.ifBlank { null })
+                        ExpenseLocalRepository(context).queueExpense(sessionId, driverId, vehicleId, total, categoryId = category?.id, paymentMethod = payment, odometer = odo, notes = notes.trim().ifBlank { null })
                     }
                 }
                 onSaved(id)
             } catch (e: IllegalArgumentException) { error = e.message ?: "Invalid entry" }
+            catch (e: Exception) { error = e.message ?: "Unable to save entry" }
             finally { busy = false }
         }
     }
@@ -131,23 +143,24 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
         Text("Session: $sessionId")
         when (entryType) {
             EntryType.TRIP -> {
-                OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Start odometer") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(endOdo, { endOdo = it }, label = { Text("End odometer") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Start odometer (km)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(endOdo, { endOdo = it }, label = { Text("End odometer (km)") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(fare, { fare = it }, label = { Text("Gross fare ₹") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(additionalCharges, { additionalCharges = it }, label = { Text("Trip expense/additional charges ₹") }, modifier = Modifier.fillMaxWidth())
-                Box { OutlinedButton({ platformMenu = true }, Modifier.fillMaxWidth()) { Text("Platform: ${selectedPlatform?.name ?: "Loading..."}") }; DropdownMenu(platformMenu, { platformMenu = false }) { platforms.forEach { p -> DropdownMenuItem(text = { Text(p.name) }, onClick = { selectedPlatform = p; platformMenu = false }) } } }
+                OutlinedTextField(additionalCharges, { additionalCharges = it }, label = { Text("Additional charges ₹") }, modifier = Modifier.fillMaxWidth())
+                Box { OutlinedButton({ platformMenu = true }, Modifier.fillMaxWidth()) { Text("Platform: ${selectedPlatform?.name ?: "Select platform"}") }; DropdownMenu(platformMenu, { platformMenu = false }) { platforms.forEach { p -> DropdownMenuItem(text = { Text(p.name) }, onClick = { selectedPlatform = p; platformMenu = false }) } } }
                 Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth()) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { payment = p; paymentMenu = false }) } } }
-                OutlinedTextField(pickup, { pickup = it }, label = { Text("Pickup") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(dropoff, { dropoff = it }, label = { Text("Drop") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(pickup, { pickup = it }, label = { Text("Pickup (optional)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(dropoff, { dropoff = it }, label = { Text("Drop (optional)") }, modifier = Modifier.fillMaxWidth())
                 Box { OutlinedButton({ statusMenu = true }, Modifier.fillMaxWidth()) { Text("Status: $status") }; DropdownMenu(statusMenu, { statusMenu = false }) { tripStatuses.forEach { s -> DropdownMenuItem(text = { Text(s) }, onClick = { status = s; statusMenu = false }) } } }
             }
             EntryType.FUEL -> {
-                OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Odometer") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Odometer (km)") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(fuelType, { fuelType = it }, label = { Text("Fuel type") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(quantity, { quantity = it }, label = { Text("Quantity") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(unit, { unit = it }, label = { Text("Unit") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(rate, { rate = it }, label = { Text("Rate ₹") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(amount, { amount = it }, label = { Text("Amount ₹") }, modifier = Modifier.fillMaxWidth())
+                Text("Calculated amount: ${calculatedFuelAmount?.let { "₹%.2f".format(it) } ?: "—"}")
+                OutlinedTextField(value = amount.ifBlank { calculatedFuelAmount?.let { "%.2f".format(it) } ?: "" }, onValueChange = { amount = it }, label = { Text("Amount ₹ (calculated; editable for review)") }, modifier = Modifier.fillMaxWidth())
                 Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth()) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { payment = p; paymentMenu = false }) } } }
             }
             EntryType.EXPENSE -> {
@@ -157,7 +170,7 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
                 OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Odometer (optional)") }, modifier = Modifier.fillMaxWidth())
             }
         }
-        OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(notes, { notes = it }, label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth())
         if (error.isNotBlank()) Text(error)
         Button(enabled = !busy, onClick = { save() }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "SAVING…" else "SAVE OFFLINE") }
         OutlinedButton(enabled = !busy, onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("CANCEL") }
