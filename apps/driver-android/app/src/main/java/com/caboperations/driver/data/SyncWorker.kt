@@ -8,15 +8,17 @@ import com.caboperations.driver.auth.AuthRepository
 import com.caboperations.driver.network.ApiClient
 import com.caboperations.driver.sync.SyncPolicy
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-/** Durable offline sync. Files are uploaded before transactions that reference them. */
+/** Durable offline sync. Session records are synced before their dependent odometer photos. */
 class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val dao = CabDatabase.get(applicationContext).pendingTransactionDao()
-        val pending = dao.pending().take(SyncPolicy.MAX_BATCH_SIZE)
+        val pending = dao.pending().take(SyncPolicy.MAX_BATCH_SIZE).sortedWith(compareBy { priority(it.type) })
         if (pending.isEmpty()) return Result.success()
 
         val baseUrl = inputData.getString(KEY_BASE_URL) ?: BuildConfig.API_BASE_URL
@@ -29,10 +31,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
 
         for (item in pending) {
             val json = runCatching { Json.parseToJsonElement(item.payloadJson).jsonObject }.getOrNull()
-            if (json == null) {
-                dao.markFailed(item.clientTransactionId, "INVALID_LOCAL_PAYLOAD")
-                continue
-            }
+            if (json == null) { dao.markFailed(item.clientTransactionId, "INVALID_LOCAL_PAYLOAD"); continue }
             val driverId = json["driverId"]?.jsonPrimitive?.content
             val vehicleId = json["vehicleId"]?.jsonPrimitive?.content
             var authRetried = false
@@ -46,6 +45,21 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                 else -> null
             }
 
+            fun transactionBody(): String {
+                if (item.type != TYPE_SESSION_START && item.type != TYPE_SESSION_CLOSE) return item.payloadJson
+                val sanitized: Map<String, JsonElement> = json.filterKeys { it != "startOdometerFileId" && it != "closeOdometerFileId" }
+                return Json.encodeToString(JsonObject.serializer(), JsonObject(sanitized))
+            }
+
+            fun attachOdometerFile(): ApiClient.Result {
+                val sessionId = json["sessionId"]?.jsonPrimitive?.content ?: return ApiClient.Result(false, false, "SESSION_ID_MISSING")
+                val fileId = json["fileId"]?.jsonPrimitive?.content
+                val objectPath = json["objectPath"]?.jsonPrimitive?.content
+                return if (fileId != null && objectPath != null) {
+                    api.post("/v1/sessions/$sessionId/odometer-file", "{\"fileId\":\"$fileId\",\"objectPath\":${Json.encodeToString(objectPath)}}", driverId, vehicleId)
+                } else ApiClient.Result(false, false, "INVALID_FILE_UPLOAD_PAYLOAD")
+            }
+
             fun upload(): ApiClient.Result? {
                 val filePath = json["localFilePath"]?.jsonPrimitive?.content
                 val fileId = json["fileId"]?.jsonPrimitive?.content
@@ -53,8 +67,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                 val mimeType = json["mimeType"]?.jsonPrimitive?.content ?: "image/jpeg"
                 val capturedAt = json["capturedAt"]?.jsonPrimitive?.content
                 if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) return null
-                val file = File(filePath)
-                if (!file.exists()) return null
+                val file = File(filePath); if (!file.exists()) return null
                 return api.uploadFile("/v1/files", fileId, objectPath, mimeType, file.readBytes(), capturedAt)
             }
 
@@ -62,57 +75,46 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                 val filePath = json["localFilePath"]?.jsonPrimitive?.content
                 val fileId = json["fileId"]?.jsonPrimitive?.content
                 val objectPath = json["objectPath"]?.jsonPrimitive?.content
-                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) {
-                    dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD")
-                    continue
+                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) { dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD"); continue }
+                if (!File(filePath).exists()) { dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING"); continue }
+                val uploaded = upload()!!
+                if (!uploaded.success) uploaded else {
+                    val attached = attachOdometerFile()
+                    if (attached.success) uploaded else attached
                 }
-                if (!File(filePath).exists()) {
-                    dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING")
-                    continue
-                }
-                upload()!!
             } else {
                 val path = postPath()
-                if (path == null) {
-                    dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE")
-                    continue
-                }
-                api.post(path, item.payloadJson, driverId, vehicleId)
+                if (path == null) { dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE"); continue }
+                api.post(path, transactionBody(), driverId, vehicleId)
             }
 
-            if (result.success) {
-                dao.markSynced(item.clientTransactionId)
-                continue
-            }
+            if (result.success) { dao.markSynced(item.clientTransactionId); continue }
 
             if (result.authExpired && !authRetried) {
-                val refreshed = auth.refreshIfNeeded(force = true)
-                val refreshedToken = refreshed.getOrNull()?.accessToken
+                val refreshed = auth.refreshIfNeeded(force = true); val refreshedToken = refreshed.getOrNull()?.accessToken
                 if (refreshedToken != null) {
-                    token = refreshedToken
-                    api = ApiClient(baseUrl, token)
-                    authRetried = true
-                    val retryResult = if (item.type == TYPE_FILE_UPLOAD) upload() else postPath()?.let { api.post(it, item.payloadJson, driverId, vehicleId) }
-                    if (retryResult?.success == true) {
-                        dao.markSynced(item.clientTransactionId)
-                        continue
-                    }
-                    if (retryResult?.retryable == true) retry = true
-                    else dao.markFailed(item.clientTransactionId, retryResult?.error ?: "AUTH_REFRESH_FAILED")
-                } else {
-                    retry = true
-                }
-            } else if (result.retryable) {
-                // Keep the item pending. A transient failure must not become a permanent
-                // local failure merely because this worker invocation ended.
-                retry = true
-            } else {
-                dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_FAILED")
-            }
+                    token = refreshedToken; api = ApiClient(baseUrl, token); authRetried = true
+                    val retryResult = if (item.type == TYPE_FILE_UPLOAD) {
+                        val uploaded = upload()
+                        if (uploaded?.success == true) attachOdometerFile() else uploaded
+                    } else postPath()?.let { api.post(it, transactionBody(), driverId, vehicleId) }
+                    if (retryResult?.success == true) { dao.markSynced(item.clientTransactionId); continue }
+                    if (retryResult?.retryable == true) retry = true else dao.markFailed(item.clientTransactionId, retryResult?.error ?: "AUTH_REFRESH_FAILED")
+                } else retry = true
+            } else if (result.retryable) retry = true
+            else dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_FAILED")
 
             if (!result.success && (item.type == TYPE_SESSION_START || item.type == TYPE_SESSION_CLOSE)) break
         }
         return if (retry) Result.retry() else Result.success()
+    }
+
+    private fun priority(type: String): Int = when (type) {
+        TYPE_SESSION_START -> 0
+        TYPE_TRIP, TYPE_FUEL, TYPE_EXPENSE -> 10
+        TYPE_SESSION_CLOSE -> 20
+        TYPE_FILE_UPLOAD -> 30
+        else -> 40
     }
 
     companion object {
