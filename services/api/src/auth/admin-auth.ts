@@ -3,6 +3,15 @@ import { getSupabaseAdmin } from '../db/supabase.js';
 
 export type AuthenticatedAdmin = { userId: string; role: 'OWNER' | 'MANAGER' };
 
+function bootstrapEmails(): Set<string> {
+  return new Set(
+    String(process.env.ADMIN_BOOTSTRAP_EMAILS ?? '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
 export async function requireAdmin(request: FastifyRequest): Promise<AuthenticatedAdmin> {
   const authorization = request.headers.authorization;
   const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
@@ -20,36 +29,30 @@ export async function requireAdmin(request: FastifyRequest): Promise<Authenticat
   if (error) throw error;
 
   if (!data) {
-    const { count, error: countError } = await supabase
+    // Bootstrap is deliberately allowlisted. An arbitrary first person who can
+    // authenticate must never be able to become the system owner.
+    const email = authData.user.email?.trim().toLowerCase();
+    if (!email || !bootstrapEmails().has(email)) throw new Error('ADMIN_PROFILE_NOT_FOUND');
+
+    const displayName =
+      String(authData.user.user_metadata?.full_name ?? authData.user.user_metadata?.name ?? authData.user.email ?? 'Owner').trim() || 'Owner';
+    const { error: insertError } = await supabase.from('app_users').insert({
+      id: authData.user.id,
+      role: 'OWNER',
+      display_name: displayName,
+      phone: authData.user.phone ?? null,
+      is_active: true,
+    });
+    if (insertError && insertError.code !== '23505') throw insertError;
+
+    const { data: bootstrapped, error: bootstrapError } = await supabase
       .from('app_users')
-      .select('id', { count: 'exact', head: true });
-    if (countError) throw countError;
-
-    // A fresh installation has no application users yet. The first authenticated
-    // admin login becomes the owner so the system can be bootstrapped without
-    // direct database/auth-admin access. The unique auth user id makes this safe
-    // against duplicate profile creation.
-    if (count === 0) {
-      const displayName =
-        String(authData.user.user_metadata?.full_name ?? authData.user.user_metadata?.name ?? authData.user.email ?? 'Owner').trim() || 'Owner';
-      const { error: insertError } = await supabase.from('app_users').insert({
-        id: authData.user.id,
-        role: 'OWNER',
-        display_name: displayName,
-        phone: authData.user.phone ?? null,
-        is_active: true,
-      });
-      if (insertError && insertError.code !== '23505') throw insertError;
-
-      const { data: bootstrapped, error: bootstrapError } = await supabase
-        .from('app_users')
-        .select('role,is_active')
-        .eq('id', authData.user.id)
-        .maybeSingle();
-      if (bootstrapError) throw bootstrapError;
-      if (bootstrapped?.is_active && (bootstrapped.role === 'OWNER' || bootstrapped.role === 'MANAGER')) {
-        return { userId: authData.user.id, role: bootstrapped.role };
-      }
+      .select('role,is_active')
+      .eq('id', authData.user.id)
+      .maybeSingle();
+    if (bootstrapError) throw bootstrapError;
+    if (bootstrapped?.is_active && (bootstrapped.role === 'OWNER' || bootstrapped.role === 'MANAGER')) {
+      return { userId: authData.user.id, role: bootstrapped.role };
     }
     throw new Error('ADMIN_PROFILE_NOT_FOUND');
   }
