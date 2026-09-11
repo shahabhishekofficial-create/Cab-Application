@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -63,7 +65,7 @@ fun SessionCloseScreen(
             gps = location
             status = when {
                 error != null -> error
-                location?.isUsable() == true -> if (captureComplete) "GPS ready • Step 3: complete close details" else "GPS ready • capture closing odometer photo"
+                location?.isUsable() == true -> if (captureComplete) "GPS ready • Step 3 of 3: complete close details" else "GPS ready • capture closing odometer photo"
                 location != null -> "GPS captured • ±${location.accuracyMeters.toInt()} m • accuracy needs review"
                 else -> "GPS unavailable • tap REFRESH GPS"
             }
@@ -94,7 +96,7 @@ fun SessionCloseScreen(
     val verification = if (closeOdo != null && ocr != null) OdometerVerifier.compare(closeOdo, ocr!!.reading, ocr!!.confidence) else null
     val canClose = !busy && closeOdo != null && closeOdo >= startOdometer && count != null && count >= 0 && reportedIncome != null && reportedIncome >= 0 && photoPath != null && gps?.isUsable() == true && ocr != null
 
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("CLOSE SESSION")
         Text("Vehicle: $vehicleId")
         Text("Session: $sessionId")
