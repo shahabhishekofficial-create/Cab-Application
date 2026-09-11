@@ -35,7 +35,6 @@ import com.caboperations.driver.network.PlatformRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
 
 private enum class EntryType { TRIP, FUEL, EXPENSE }
 private val paymentMethods = listOf("CASH", "UPI", "CARD", "BANK", "OTHER")
@@ -74,18 +73,26 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
 
     LaunchedEffect(entryType) {
         error = ""
-        val token = auth.refreshIfNeeded().getOrNull()?.accessToken
+        val tokenResult = withContext(Dispatchers.IO) { auth.refreshIfNeeded() }
+        val token = tokenResult.getOrNull()?.accessToken
         if (token == null) {
             error = "Login session expired. Please log in again."
             return@LaunchedEffect
         }
         if (entryType == EntryType.TRIP) {
-            val loaded = withContext(Dispatchers.IO) { PlatformRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
-            platforms = loaded
-            selectedPlatform = loaded.firstOrNull()
+            val result = withContext(Dispatchers.IO) { PlatformRepository(BuildConfig.API_BASE_URL, token).load() }
+            if (result.isSuccess) {
+                platforms = result.getOrNull().orEmpty()
+                selectedPlatform = platforms.firstOrNull()
+            } else {
+                // Trip entry remains usable offline; platform is optional in the persisted schema.
+                error = "Platforms unavailable offline. You can still save the trip and sync it later."
+            }
         }
         if (entryType == EntryType.EXPENSE) {
-            categories = withContext(Dispatchers.IO) { ExpenseCategoryRepository(BuildConfig.API_BASE_URL, token).load().getOrNull().orEmpty() }
+            val result = withContext(Dispatchers.IO) { ExpenseCategoryRepository(BuildConfig.API_BASE_URL, token).load() }
+            if (result.isSuccess) categories = result.getOrNull().orEmpty()
+            else error = "Expense categories unavailable offline. You can still save as Uncategorized."
         }
     }
 
@@ -109,7 +116,6 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
                         require(end >= start) { "Ending odometer cannot be less than starting odometer" }
                         require(gross >= 0) { "Fare cannot be negative" }
                         require(charges >= 0) { "Additional charges cannot be negative" }
-                        require(status != "COMPLETED" || selectedPlatform != null) { "Select the cab platform" }
                         TripLocalRepository(context).queueTrip(sessionId, driverId, vehicleId, start, end, gross, status, platformId = selectedPlatform?.id, pickup = pickup.trim().ifBlank { null }, dropoff = dropoff.trim().ifBlank { null }, paymentMethod = payment, additionalCharges = charges, notes = notes.trim().ifBlank { null })
                     }
                     EntryType.FUEL -> {
@@ -147,7 +153,7 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
                 OutlinedTextField(endOdo, { endOdo = it }, label = { Text("End odometer (km)") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(fare, { fare = it }, label = { Text("Gross fare ₹") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(additionalCharges, { additionalCharges = it }, label = { Text("Additional charges ₹") }, modifier = Modifier.fillMaxWidth())
-                Box { OutlinedButton({ platformMenu = true }, Modifier.fillMaxWidth()) { Text("Platform: ${selectedPlatform?.name ?: "Select platform"}") }; DropdownMenu(platformMenu, { platformMenu = false }) { platforms.forEach { p -> DropdownMenuItem(text = { Text(p.name) }, onClick = { selectedPlatform = p; platformMenu = false }) } } }
+                Box { OutlinedButton({ platformMenu = true }, Modifier.fillMaxWidth()) { Text("Platform: ${selectedPlatform?.name ?: "Not selected (optional)"}") }; DropdownMenu(platformMenu, { platformMenu = false }) { platforms.forEach { p -> DropdownMenuItem(text = { Text(p.name) }, onClick = { selectedPlatform = p; platformMenu = false }) } } }
                 Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth()) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { payment = p; paymentMenu = false }) } } }
                 OutlinedTextField(pickup, { pickup = it }, label = { Text("Pickup (optional)") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(dropoff, { dropoff = it }, label = { Text("Drop (optional)") }, modifier = Modifier.fillMaxWidth())
@@ -160,7 +166,13 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
                 OutlinedTextField(unit, { unit = it }, label = { Text("Unit") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(rate, { rate = it }, label = { Text("Rate ₹") }, modifier = Modifier.fillMaxWidth())
                 Text("Calculated amount: ${calculatedFuelAmount?.let { "₹%.2f".format(it) } ?: "—"}")
-                OutlinedTextField(value = amount.ifBlank { calculatedFuelAmount?.let { "%.2f".format(it) } ?: "" }, onValueChange = { amount = it }, label = { Text("Amount ₹ (calculated; editable for review)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = calculatedFuelAmount?.let { "%.2f".format(it) } ?: "",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Amount ₹ (quantity × rate)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth()) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { payment = p; paymentMenu = false }) } } }
             }
             EntryType.EXPENSE -> {
