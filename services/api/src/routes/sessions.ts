@@ -1,5 +1,4 @@
 import { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import { closeSession as persistCloseSession, startSession as persistStartSession } from '../db/session-repository.js';
 import { closeSessionSchema, startSessionSchema } from '../domain/schemas.js';
 import { authErrorResponse, requireDriver } from '../auth/driver-auth.js';
@@ -10,9 +9,9 @@ function mapDatabaseError(error: unknown): { status: number; body: Record<string
   const known: Record<string, string> = {
     DRIVER_VEHICLE_NOT_ASSIGNED:'DRIVER_VEHICLE_NOT_ASSIGNED', VEHICLE_NOT_ACTIVE:'VEHICLE_NOT_ACTIVE', SESSION_ALREADY_OPEN:'SESSION_ALREADY_OPEN',
     NO_OPEN_SESSION:'NO_OPEN_SESSION', SESSION_CLOSED:'SESSION_CLOSED', SESSION_DRIVER_MISMATCH:'SESSION_DRIVER_MISMATCH', SESSION_VEHICLE_MISMATCH:'SESSION_VEHICLE_MISMATCH',
-    INVALID_CLOSE_ODOMETER:'INVALID_CLOSE_ODOMETER', CLOSE_TIME_BEFORE_START:'CLOSE_TIME_BEFORE_START',
+    INVALID_CLOSE_ODOMETER:'INVALID_CLOSE_ODOMETER', CLOSE_TIME_BEFORE_START:'CLOSE_TIME_BEFORE_START', ODOMETER_REGRESSION:'ODOMETER_REGRESSION',
   };
-  const code=Object.keys(known).find(key=>message.includes(key)); return code?{status:409,body:{error:known[code],message:code}}:null;
+  const code=Object.keys(known).find(key=>message.includes(key)); return code?{status:409,body:{error:known[code],message}}:null;
 }
 
 export async function registerSessionRoutes(app: FastifyInstance): Promise<void> {
