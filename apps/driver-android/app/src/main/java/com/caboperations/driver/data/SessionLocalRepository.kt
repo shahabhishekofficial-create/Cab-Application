@@ -31,11 +31,15 @@ class SessionLocalRepository(private val context: Context) {
         val filePath = startOdometerFilePath?.let { LocalPhotoStore.persist(context, it) }
         val objectPath = fileId?.let { "sessions/$sessionId/start-odometer-$it.jpg" }
 
+        // The session row has a foreign key to files. The file is uploaded only
+        // after the session transaction is accepted, so do not send the file id
+        // on SESSION_START. The FILE_UPLOAD transaction uploads it and then calls
+        // the odometer-file attachment endpoint, preserving the dependency order.
         val payload = buildJsonObject {
             put("clientTransactionId", transactionId); put("sessionId", sessionId); put("driverId", driverId); put("vehicleId", vehicleId)
             deviceId?.let { put("deviceId", it) }; put("startedAt", now); put("startOdometer", startOdometer)
             startLat?.let { put("startLat", it) }; startLng?.let { put("startLng", it) }; startAccuracyM?.let { put("startAccuracyM", it) }; startGpsAt?.let { put("startGpsAt", it) }
-            fileId?.let { put("startOdometerFileId", it) }; ocrResult?.reading?.let { put("ocrReading", it) }
+            ocrResult?.reading?.let { put("ocrReading", it) }
             ocrResult?.let { put("ocrConfidence", it.confidence); put("ocrRawText", it.rawText) }; ocrDecision?.let { put("ocrDecision", it.name) }
         }.toString()
 
