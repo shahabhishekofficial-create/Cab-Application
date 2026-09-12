@@ -9,16 +9,12 @@ function errorResponse(reply: any, error: unknown) {
 
   const message = error instanceof Error ? error.message : String(error);
   const known = [
-    'DRIVER_VEHICLE_NOT_ASSIGNED',
-    'VEHICLE_NOT_ACTIVE',
-    'SESSION_NOT_OPEN',
-    'SESSION_CLOSED',
-    'SESSION_DRIVER_MISMATCH',
-    'SESSION_VEHICLE_MISMATCH',
-    'SESSION_IDENTITY_MISMATCH',
+    'DRIVER_VEHICLE_NOT_ASSIGNED', 'VEHICLE_NOT_ACTIVE', 'SESSION_NOT_OPEN', 'SESSION_CLOSED',
+    'SESSION_DRIVER_MISMATCH', 'SESSION_VEHICLE_MISMATCH', 'SESSION_IDENTITY_MISMATCH',
+    'ODOMETER_REGRESSION', 'FUEL_AMOUNT_MISMATCH', 'SESSION_NOT_FOUND',
   ];
   const code = known.find((value) => message.includes(value));
-  if (code) return reply.code(409).send({ error: code, message: code });
+  if (code) return reply.code(409).send({ error: code, message });
 
   return reply.code(500).send({ error: 'TRANSACTION_FAILED' });
 }
