@@ -5,12 +5,14 @@ export interface StartSessionRecord { clientTransactionId: string; sessionId: st
 export interface CloseSessionRecord { clientTransactionId: string; sessionId: string; driverId: string; vehicleId: string; closedAt: string; closeOdometer: number; closeLat?: number | null; closeLng?: number | null; closeAccuracyM?: number | null; closeGpsAt?: string | null; closeOdometerFileId?: string | null; reportedTripCount: number; reportedIncome: number; ocrReading?: number | null; ocrConfidence?: number | null; ocrDecision?: 'PASS' | 'REVIEW' | 'FAIL' | null; ocrRawText?: string | null; notes?: string | null; }
 
 export async function startSession(input: StartSessionRecord): Promise<Record<string, unknown>> {
-  // The authoritative live RPC does not accept p_session_id; it generates/uses
-  // the session id from the client transaction. Passing the obsolete argument
-  // makes PostgREST reject the request with HTTP 400.
+  // device_id is a UUID in the database. Android's historical device identifier
+  // was not UUID-shaped, so never forward an invalid legacy value to Postgres.
+  const deviceId = input.deviceId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.deviceId)
+    ? input.deviceId
+    : null;
   const { data, error } = await getSupabaseAdmin().rpc('start_session', {
     p_client_transaction_id: input.clientTransactionId, p_driver_id: input.driverId, p_vehicle_id: input.vehicleId,
-    p_device_id: input.deviceId ?? null, p_started_at: input.startedAt, p_start_odometer: input.startOdometer, p_start_lat: input.startLat ?? null,
+    p_device_id: deviceId, p_started_at: input.startedAt, p_start_odometer: input.startOdometer, p_start_lat: input.startLat ?? null,
     p_start_lng: input.startLng ?? null, p_start_accuracy_m: input.startAccuracyM ?? null, p_start_gps_at: input.startGpsAt ?? null,
     p_start_odometer_file_id: input.startOdometerFileId ?? null, p_notes: input.notes ?? null,
   });
