@@ -5,18 +5,25 @@ import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 
 object SyncScheduler {
     private const val UNIQUE_WORK = "cab-offline-sync"
 
+    /**
+     * Every locally committed entry triggers an immediate sync attempt when the
+     * network is available. WorkManager remains the durable safety net if the
+     * app is backgrounded, connectivity drops, or the process is killed.
+     */
     fun enqueue(context: Context, apiBaseUrl: String) {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(constraints)
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .setInputData(workDataOf(SyncWorker.KEY_BASE_URL to apiBaseUrl))
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
