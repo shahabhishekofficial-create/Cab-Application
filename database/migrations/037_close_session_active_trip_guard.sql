@@ -69,6 +69,6 @@ begin
 end;
 $$;
 
-revoke all on function public.close_session(uuid,uuid,uuid,uuid,timestamptz,numeric,numeric,numeric,timestamptz,uuid,integer,numeric,text) from public;
-grant execute on function public.close_session(uuid,uuid,uuid,uuid,timestamptz,numeric,numeric,numeric,timestamptz,uuid,integer,numeric,text) to service_role;
+revoke all on function public.close_session(uuid,uuid,uuid,uuid,timestamptz,numeric,numeric,numeric,numeric,timestamptz,uuid,integer,numeric,text) from public;
+grant execute on function public.close_session(uuid,uuid,uuid,uuid,timestamptz,numeric,numeric,numeric,numeric,timestamptz,uuid,integer,numeric,text) to service_role;
 commit;
