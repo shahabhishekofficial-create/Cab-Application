@@ -29,29 +29,19 @@ class FuelLocalRepository(private val context: android.content.Context) {
     ): String {
         require(quantity > 0) { "Fuel quantity must be positive" }
         require(rate >= 0 && amount >= 0 && odometer >= 0) { "Invalid fuel values" }
+        require(kotlin.math.abs(amount - quantity * rate) <= 0.01) { "Fuel amount must equal quantity × rate" }
 
         val id = UUID.randomUUID().toString()
         val payload = buildJsonObject {
-            put("clientTransactionId", id)
-            put("sessionId", sessionId)
-            put("driverId", driverId)
-            put("vehicleId", vehicleId)
-            put("fuelType", fuelType)
-            put("odometer", odometer)
-            put("quantity", quantity)
-            put("unit", unit)
-            put("rate", rate)
-            put("amount", amount)
-            paymentMethod?.let { put("paymentMethod", it) }
-            receiptFileId?.let { put("receiptFileId", it) }
-            latitude?.let { put("latitude", it) }
-            longitude?.let { put("longitude", it) }
-            gpsAccuracyM?.let { put("gpsAccuracyM", it) }
-            put("recordedAt", recordedAt)
-            notes?.let { put("notes", it) }
+            put("clientTransactionId", id); put("sessionId", sessionId); put("driverId", driverId); put("vehicleId", vehicleId)
+            put("fuelType", fuelType); put("odometer", odometer); put("quantity", quantity); put("unit", unit); put("rate", rate); put("amount", amount)
+            paymentMethod?.let { put("paymentMethod", it) }; receiptFileId?.let { put("receiptFileId", it) }
+            latitude?.let { put("latitude", it) }; longitude?.let { put("longitude", it) }; gpsAccuracyM?.let { put("gpsAccuracyM", it) }
+            put("recordedAt", recordedAt); notes?.let { put("notes", it) }
         }.toString()
 
         db.withTransaction {
+            OdometerGuard.requireAtLeast(db, sessionId, odometer, "Fuel odometer")
             db.pendingTransactionDao().insert(PendingTransaction(id, "FUEL", payload, System.currentTimeMillis()))
             db.localFuelDao().insert(LocalFuel(id, sessionId, odometer, quantity, rate, amount, fuelType, false))
         }
