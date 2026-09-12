@@ -68,16 +68,28 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
                         val gross = fare.toDoubleOrNull() ?: error("Enter fare")
                         val charges = additionalCharges.toDoubleOrNull() ?: error("Enter additional charges")
                         require(start >= 0 && end >= 0) { "Odometer cannot be negative" }; require(end >= start) { "Ending odometer cannot be less than starting odometer" }; require(gross >= 0) { "Fare cannot be negative" }; require(charges >= 0) { "Additional charges cannot be negative" }
-                        TripLocalRepository(context).queueTrip(sessionId, driverId, vehicleId, start, end, gross, status, selectedPlatform?.id, pickup.trim().ifBlank { null }, dropoff.trim().ifBlank { null }, payment, charges, notes.trim().ifBlank { null })
+                        TripLocalRepository(context).queueTrip(
+                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId,
+                            startOdometer = start, endOdometer = end, grossFare = gross, status = status,
+                            platformId = selectedPlatform?.id, pickup = pickup.trim().ifBlank { null }, dropoff = dropoff.trim().ifBlank { null },
+                            paymentMethod = payment, additionalCharges = charges, notes = notes.trim().ifBlank { null }
+                        )
                     }
                     EntryType.FUEL -> {
                         val odo = startOdo.toDoubleOrNull() ?: error("Enter odometer"); val qty = quantityValue ?: error("Enter quantity"); val fuelRate = rateValue ?: error("Enter rate"); val total = calculatedFuelAmount ?: error("Enter valid quantity and rate")
                         require(odo >= 0) { "Odometer cannot be negative" }; require(qty > 0) { "Quantity must be greater than zero" }; require(fuelRate >= 0) { "Rate cannot be negative" }; require(total > 0) { "Amount must be greater than zero" }
-                        FuelLocalRepository(context).queueFuel(sessionId, driverId, vehicleId, fuelType.trim(), odo, qty, unit.trim(), fuelRate, total, payment, notes.trim().ifBlank { null })
+                        FuelLocalRepository(context).queueFuel(
+                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, fuelType = fuelType.trim(),
+                            odometer = odo, quantity = qty, unit = unit.trim(), rate = fuelRate, amount = total,
+                            paymentMethod = payment, notes = notes.trim().ifBlank { null }
+                        )
                     }
                     EntryType.EXPENSE -> {
                         val total = amount.toDoubleOrNull() ?: error("Enter amount"); val odo = startOdo.toDoubleOrNull(); require(total > 0) { "Amount must be greater than zero" }; require(odo == null || odo >= 0) { "Odometer cannot be negative" }
-                        ExpenseLocalRepository(context).queueExpense(sessionId, driverId, vehicleId, total, category?.id, payment, odo, notes.trim().ifBlank { null })
+                        ExpenseLocalRepository(context).queueExpense(
+                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, amount = total,
+                            categoryId = category?.id, paymentMethod = payment, odometer = odo, notes = notes.trim().ifBlank { null }
+                        )
                     }
                 }
                 onSaved(id)
