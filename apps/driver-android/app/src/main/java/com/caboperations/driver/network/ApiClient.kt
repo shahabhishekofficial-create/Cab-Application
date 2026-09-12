@@ -1,13 +1,29 @@
 package com.caboperations.driver.network
 
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class ApiClient(private val baseUrl: String, private val accessToken: String? = null) {
     data class Result(val success: Boolean, val retryable: Boolean, val error: String? = null, val authExpired: Boolean = false)
 
-    private fun resultForCode(code: Int): Result = classifyHttpCode(code)
+    private fun resultForCode(connection: HttpURLConnection): Result {
+        val code = connection.responseCode
+        val classified = classifyHttpCode(code)
+        if (classified.success || classified.authExpired) return classified
+        val stream = runCatching { connection.errorStream ?: connection.inputStream }.getOrNull() ?: return classified
+        val body = runCatching { stream.use { it.readBytes().toString(StandardCharsets.UTF_8) } }.getOrNull().orEmpty()
+        if (body.isBlank()) return classified
+        val serverError = runCatching {
+            Json.parseToJsonElement(body).jsonObject["error"]?.jsonPrimitive?.content
+        }.getOrNull()
+        val detail = serverError?.takeIf { it.isNotBlank() }
+        return if (detail != null) classified.copy(error = detail) else classified
+    }
 
     fun post(path: String, body: String, driverId: String?, vehicleId: String?): Result {
         val connection = (URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
@@ -19,7 +35,7 @@ class ApiClient(private val baseUrl: String, private val accessToken: String? = 
         }
         return try {
             connection.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
-            resultForCode(connection.responseCode)
+            resultForCode(connection)
         } catch (e: Exception) { Result(false, true, e.message ?: "NETWORK_ERROR") }
         finally { connection.disconnect() }
     }
@@ -33,7 +49,7 @@ class ApiClient(private val baseUrl: String, private val accessToken: String? = 
         }
         return try {
             connection.outputStream.use { it.write(bytes) }
-            resultForCode(connection.responseCode)
+            resultForCode(connection)
         } catch (e: Exception) { Result(false, true, e.message ?: "NETWORK_ERROR") }
         finally { connection.disconnect() }
     }
