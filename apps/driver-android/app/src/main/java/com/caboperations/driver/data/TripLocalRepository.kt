@@ -33,25 +33,16 @@ class TripLocalRepository(private val context: android.content.Context) {
 
         val id = UUID.randomUUID().toString()
         val payload = buildJsonObject {
-            put("clientTransactionId", id)
-            put("sessionId", sessionId)
-            put("driverId", driverId)
-            put("vehicleId", vehicleId)
-            platformId?.let { put("platformId", it) }
-            put("startedAt", startedAt)
-            endedAt?.let { put("endedAt", it) }
-            pickup?.let { put("pickup", it) }
-            dropoff?.let { put("dropoff", it) }
-            put("startOdometer", startOdometer)
-            endOdometer?.let { put("endOdometer", it) }
-            put("grossFare", grossFare)
-            paymentMethod?.let { put("paymentMethod", it) }
-            put("additionalCharges", additionalCharges)
-            put("status", status)
-            notes?.let { put("notes", it) }
+            put("clientTransactionId", id); put("sessionId", sessionId); put("driverId", driverId); put("vehicleId", vehicleId)
+            platformId?.let { put("platformId", it) }; put("startedAt", startedAt); endedAt?.let { put("endedAt", it) }
+            pickup?.let { put("pickup", it) }; dropoff?.let { put("dropoff", it) }; put("startOdometer", startOdometer)
+            endOdometer?.let { put("endOdometer", it) }; put("grossFare", grossFare); paymentMethod?.let { put("paymentMethod", it) }
+            put("additionalCharges", additionalCharges); put("status", status); notes?.let { put("notes", it) }
         }.toString()
 
         db.withTransaction {
+            OdometerGuard.requireAtLeast(db, sessionId, startOdometer, "Trip start odometer")
+            endOdometer?.let { OdometerGuard.requireAtLeast(db, sessionId, it, "Trip end odometer") }
             db.pendingTransactionDao().insert(PendingTransaction(id, "TRIP", payload, System.currentTimeMillis()))
             db.localTripDao().insert(LocalTrip(id, sessionId, startOdometer, endOdometer, grossFare, status, false))
         }
