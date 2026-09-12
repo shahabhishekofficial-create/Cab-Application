@@ -103,9 +103,7 @@ object SyncEngine {
                 // Older app builds queued startOdometerFileId on SESSION_START,
                 // but the server session row has a foreign key to files and the
                 // upload is a later transaction. Strip the legacy field during
-                // sync so existing queued sessions can migrate safely. The
-                // subsequent FILE_UPLOAD transaction attaches the file after the
-                // session exists.
+                // sync so existing queued sessions can migrate safely.
                 val body = if (item.type == TYPE_SESSION_START && json.containsKey("startOdometerFileId")) {
                     buildJsonObject {
                         json.forEach { (key, value) -> if (key != "startOdometerFileId") put(key, value) }
@@ -123,30 +121,35 @@ object SyncEngine {
                 val refreshed = auth.refreshIfNeeded(force = true)
                 val newToken = refreshed.getOrNull()?.accessToken
                 if (newToken == null) {
-                    retry = true
+                    dao.markFailed(item.clientTransactionId, "AUTH_REFRESH_FAILED")
+                    retry = dao.find(item.clientTransactionId)?.attempts?.let { it < SyncPolicy.MAX_RETRY_ATTEMPTS } ?: false
                     break
                 }
                 token = newToken
                 api = ApiClient(baseUrl, token)
                 val p = path()
+                val body = if (item.type == TYPE_SESSION_START && json.containsKey("startOdometerFileId")) {
+                    buildJsonObject {
+                        json.forEach { (key, value) -> if (key != "startOdometerFileId") put(key, value) }
+                    }.toString()
+                } else item.payloadJson
                 val retryResult = if (item.type == TYPE_FILE_UPLOAD) {
                     val uploaded = upload()
                     if (uploaded?.success == true) attachOdometerFile() else uploaded
-                } else if (p != null) {
-                    val body = if (item.type == TYPE_SESSION_START && json.containsKey("startOdometerFileId")) {
-                        buildJsonObject {
-                            json.forEach { (key, value) -> if (key != "startOdometerFileId") put(key, value) }
-                        }.toString()
-                    } else item.payloadJson
-                    api.post(p, body, driverId, vehicleId)
-                } else null
+                } else p?.let { api.post(it, body, driverId, vehicleId) }
                 if (retryResult?.success == true) {
                     dao.markSynced(item.clientTransactionId)
                     continue
                 }
-                if (retryResult?.retryable == true) retry = true else dao.markFailed(item.clientTransactionId, retryResult?.error ?: "AUTH_REFRESH_FAILED")
+                val error = retryResult?.error ?: "AUTH_REFRESH_FAILED"
+                dao.markFailed(item.clientTransactionId, error)
+                retry = dao.find(item.clientTransactionId)?.attempts?.let { it < SyncPolicy.MAX_RETRY_ATTEMPTS } ?: false
             } else if (result.retryable) {
-                retry = true
+                // Count transient failures too. Previously these never incremented
+                // attempts, which allowed one broken transaction to hammer the API
+                // indefinitely through immediate sync + WorkManager.
+                dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_RETRYABLE_FAILURE")
+                retry = dao.find(item.clientTransactionId)?.attempts?.let { it < SyncPolicy.MAX_RETRY_ATTEMPTS } ?: false
             } else {
                 dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_FAILED")
             }
