@@ -37,7 +37,7 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
     var payment by remember { mutableStateOf("UPI") }; var status by remember { mutableStateOf("COMPLETED") }; var pickup by remember { mutableStateOf("") }; var dropoff by remember { mutableStateOf("") }
     var fuelType by remember { mutableStateOf("CNG") }; var quantity by remember { mutableStateOf("") }; var unit by remember { mutableStateOf("KG") }; var rate by remember { mutableStateOf("") }; var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf<ExpenseCategoryOption?>(null) }; var categories by remember { mutableStateOf<List<ExpenseCategoryOption>>(emptyList()) }; var notes by remember { mutableStateOf("") }
-    var platforms by remember { mutableStateOf<List<PlatformOption>>(emptyList()) }; var selectedPlatform by remember { mutableStateOf<PlatformOption?>(null)
+    var platforms by remember { mutableStateOf<List<PlatformOption>>(emptyList()) }; var selectedPlatform by remember { mutableStateOf<PlatformOption?>(null) }
     var platformMenu by remember { mutableStateOf(false) }; var categoryMenu by remember { mutableStateOf(false) }; var paymentMenu by remember { mutableStateOf(false) }; var statusMenu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }
 
