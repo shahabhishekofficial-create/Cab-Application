@@ -1,5 +1,7 @@
 package com.caboperations.driver.ui
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,12 +11,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.caboperations.driver.BuildConfig
 import com.caboperations.driver.auth.AuthRepository
 import com.caboperations.driver.data.ExpenseLocalRepository
 import com.caboperations.driver.data.FuelLocalRepository
 import com.caboperations.driver.data.TripLocalRepository
+import com.caboperations.driver.location.FusedLocationProvider
+import com.caboperations.driver.location.LocationSnapshot
 import com.caboperations.driver.network.ExpenseCategoryOption
 import com.caboperations.driver.network.ExpenseCategoryRepository
 import com.caboperations.driver.network.PlatformOption
@@ -31,15 +38,39 @@ private val tripStatuses = listOf("COMPLETED", "CANCELLED_BY_CUSTOMER", "CANCELL
 fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, vehicleId: String, onSaved: (String) -> Unit, onCancel: () -> Unit) {
     val entryType = runCatching { EntryType.valueOf(type) }.getOrElse { EntryType.TRIP }
     val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val auth = remember { AuthRepository(context) }
     var startOdo by remember { mutableStateOf("") }; var endOdo by remember { mutableStateOf("") }; var fare by remember { mutableStateOf("") }; var additionalCharges by remember { mutableStateOf("0") }
     var payment by remember { mutableStateOf("UPI") }; var status by remember { mutableStateOf("COMPLETED") }; var pickup by remember { mutableStateOf("") }; var dropoff by remember { mutableStateOf("") }
-    var fuelType by remember { mutableStateOf("CNG") }; var quantity by remember { mutableStateOf("") }; var unit by remember { mutableStateOf("KG") }; var rate by remember { mutableStateOf("") }; var amount by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf<ExpenseCategoryOption?>(null) }; var categories by remember { mutableStateOf<List<ExpenseCategoryOption>>(emptyList()) }; var notes by remember { mutableStateOf("") }
+    var fuelType by remember { mutableStateOf("CNG") }; var quantity by remember { mutableStateOf("") }; var unit by remember { mutableStateOf("KG") }; var rate by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }; var category by remember { mutableStateOf<ExpenseCategoryOption?>(null) }; var categories by remember { mutableStateOf<List<ExpenseCategoryOption>>(emptyList()) }; var notes by remember { mutableStateOf("") }
     var platforms by remember { mutableStateOf<List<PlatformOption>>(emptyList()) }; var selectedPlatform by remember { mutableStateOf<PlatformOption?>(null) }
     var platformMenu by remember { mutableStateOf(false) }; var categoryMenu by remember { mutableStateOf(false) }; var paymentMenu by remember { mutableStateOf(false) }; var statusMenu by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }; var gps by remember { mutableStateOf<LocationSnapshot?>(null) }; var gpsStatus by remember { mutableStateOf("Getting GPS location…") }
+
+    fun captureGps() {
+        val provider = FusedLocationProvider(context)
+        if (!provider.isLocationEnabled()) {
+            gps = null; gpsStatus = "Location services are OFF. Turn on Location to continue."
+            runCatching { context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }; return
+        }
+        gpsStatus = "Getting a precise GPS fix…"
+        provider.currentLocation { location, locationError ->
+            gps = location
+            gpsStatus = when {
+                location?.isUsable() == true -> "GPS ready • accuracy ±${location.accuracyMeters.toInt()} m"
+                location != null -> "GPS found, but accuracy is above 50 m. Waiting for a better fix…"
+                else -> "GPS unavailable${locationError?.let { ": $it" } ?: ""}."
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { captureGps() }
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) captureGps() }
+        owner.lifecycle.addObserver(observer); onDispose { owner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(entryType) {
         error = ""
@@ -58,7 +89,10 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
     val calculatedFuelAmount = if (quantityValue != null && rateValue != null && quantityValue > 0 && rateValue >= 0) quantityValue * rateValue else null
 
     fun save() {
-        if (busy) return; busy = true; error = ""
+        if (busy) return
+        val location = gps
+        if (location?.isUsable() != true) { error = "A precise GPS location (accuracy ≤50 m and fresh within 60 seconds) is required before saving."; captureGps(); return }
+        busy = true; error = ""
         scope.launch {
             try {
                 val id = when (entryType) {
@@ -69,26 +103,24 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
                         val charges = additionalCharges.toDoubleOrNull() ?: error("Enter additional charges")
                         require(start >= 0 && end >= 0) { "Odometer cannot be negative" }; require(end >= start) { "Ending odometer cannot be less than starting odometer" }; require(gross >= 0) { "Fare cannot be negative" }; require(charges >= 0) { "Additional charges cannot be negative" }
                         TripLocalRepository(context).queueTrip(
-                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId,
-                            startOdometer = start, endOdometer = end, grossFare = gross, status = status,
-                            platformId = selectedPlatform?.id, pickup = pickup.trim().ifBlank { null }, dropoff = dropoff.trim().ifBlank { null },
-                            paymentMethod = payment, additionalCharges = charges, notes = notes.trim().ifBlank { null }
+                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, startOdometer = start, endOdometer = end, grossFare = gross, status = status,
+                            platformId = selectedPlatform?.id, pickup = pickup.trim().ifBlank { null }, dropoff = dropoff.trim().ifBlank { null }, paymentMethod = payment,
+                            additionalCharges = charges, notes = notes.trim().ifBlank { null }, location = location
                         )
                     }
                     EntryType.FUEL -> {
                         val odo = startOdo.toDoubleOrNull() ?: error("Enter odometer"); val qty = quantityValue ?: error("Enter quantity"); val fuelRate = rateValue ?: error("Enter rate"); val total = calculatedFuelAmount ?: error("Enter valid quantity and rate")
                         require(odo >= 0) { "Odometer cannot be negative" }; require(qty > 0) { "Quantity must be greater than zero" }; require(fuelRate >= 0) { "Rate cannot be negative" }; require(total > 0) { "Amount must be greater than zero" }
                         FuelLocalRepository(context).queueFuel(
-                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, fuelType = fuelType.trim(),
-                            odometer = odo, quantity = qty, unit = unit.trim(), rate = fuelRate, amount = total,
-                            paymentMethod = payment, notes = notes.trim().ifBlank { null }
+                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, fuelType = fuelType.trim(), odometer = odo, quantity = qty, unit = unit.trim(), rate = fuelRate, amount = total,
+                            paymentMethod = payment, notes = notes.trim().ifBlank { null }, location = location
                         )
                     }
                     EntryType.EXPENSE -> {
                         val total = amount.toDoubleOrNull() ?: error("Enter amount"); val odo = startOdo.toDoubleOrNull(); require(total > 0) { "Amount must be greater than zero" }; require(odo == null || odo >= 0) { "Odometer cannot be negative" }
                         ExpenseLocalRepository(context).queueExpense(
-                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, amount = total,
-                            categoryId = category?.id, paymentMethod = payment, odometer = odo, notes = notes.trim().ifBlank { null }
+                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, amount = total, categoryId = category?.id, paymentMethod = payment, odometer = odo,
+                            notes = notes.trim().ifBlank { null }, location = location
                         )
                     }
                 }
@@ -103,7 +135,10 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CabHeader(title, subtitle, onBack = onCancel)
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(shape = RoundedCornerShape(14.dp), color = CabPurpleSoft) { Text("Session active • entry will be saved on this phone first", modifier = Modifier.fillMaxWidth().padding(12.dp), color = CabPurple, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold) }
+            Surface(shape = RoundedCornerShape(14.dp), color = CabPurpleSoft) { Text("Session active • entry is saved on this phone first and synced automatically", modifier = Modifier.fillMaxWidth().padding(12.dp), color = CabPurple, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold) }
+            Surface(shape = RoundedCornerShape(14.dp), color = if (gps?.isUsable() == true) CabGreenSoft else CabAmberSoft) {
+                Text(gpsStatus, modifier = Modifier.fillMaxWidth().padding(13.dp), color = if (gps?.isUsable() == true) CabGreen else CabAmber, fontWeight = FontWeight.SemiBold)
+            }
             CabCard {
                 when (entryType) {
                     EntryType.TRIP -> {
@@ -138,11 +173,9 @@ fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, ve
                 OutlinedTextField(notes, { notes = it }, label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(14.dp))
             }
             if (error.isNotBlank()) Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.errorContainer) { Text(error, modifier = Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer) }
-            CabPrimaryButton(if (busy) "Saving…" else "Save entry", enabled = !busy, onClick = { save() })
-            Text("You don’t need internet to save. We’ll sync it automatically when possible.", modifier = Modifier.fillMaxWidth(), color = CabGray, style = MaterialTheme.typography.bodySmall)
+            CabPrimaryButton(if (busy) "Saving…" else "Save entry", enabled = !busy && gps?.isUsable() == true, onClick = { save() })
+            Text("GPS accuracy must be ≤50 m and the fix must be fresh. You don’t need internet to save; sync happens automatically when possible.", modifier = Modifier.fillMaxWidth(), color = CabGray, style = MaterialTheme.typography.bodySmall)
             CabSecondaryButton("Cancel", enabled = !busy, onClick = onCancel)
         }
     }
 }
-
-private fun error(message: String): Nothing = throw IllegalArgumentException(message)
