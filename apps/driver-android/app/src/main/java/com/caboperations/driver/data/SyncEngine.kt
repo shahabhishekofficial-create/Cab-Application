@@ -24,9 +24,13 @@ object SyncEngine {
         if (pending.isEmpty()) return@withLock true
 
         val auth = AuthRepository(context)
+        val currentSession = auth.session()
         val tokenResult = auth.refreshIfNeeded()
-        if (tokenResult.isFailure) return@withLock false
-        var token = tokenResult.getOrNull()?.accessToken ?: return@withLock false
+        // A transient refresh failure must not suppress the actual API sync. If a
+        // cached access token exists, use it and let the API decide whether it is
+        // still valid; a 401 below will trigger the normal forced-refresh path.
+        if (tokenResult.isFailure && currentSession == null) return@withLock false
+        var token = tokenResult.getOrNull()?.accessToken ?: currentSession?.accessToken ?: return@withLock false
         var api = ApiClient(baseUrl, token)
         var retry = false
 
