@@ -1,7 +1,9 @@
 package com.caboperations.driver.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
@@ -19,6 +21,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.caboperations.driver.capture.CameraCapture
 import com.caboperations.driver.capture.CameraPreviewController
 import com.caboperations.driver.location.FusedLocationProvider
@@ -43,27 +47,53 @@ fun SessionStartScreen(driverId: String, vehicleId: String, onStart: suspend (Do
     var captureComplete by remember { mutableStateOf(false) }
 
     fun captureGps() {
+        val provider = FusedLocationProvider(context)
+        if (!provider.isLocationEnabled()) {
+            gps = null
+            status = "Location services are OFF. Turn on Location to continue."
+            runCatching { context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+            return
+        }
         status = "Getting your GPS location…"
-        FusedLocationProvider(context).currentLocation { location, error ->
+        provider.currentLocation { location, error ->
             gps = location
             status = when {
                 error != null -> error
                 location?.isUsable() == true -> "Location ready. Review the odometer and start."
                 location != null -> "Location found, but accuracy needs review."
-                else -> "Couldn’t get location. Tap Refresh location."
+                else -> "Unable to get a usable GPS location."
             }
         }
     }
+
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val cameraGranted = grants[Manifest.permission.CAMERA] == true || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         val locationGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        when { !cameraGranted && !locationGranted -> status = "Camera and location permissions are required"; !cameraGranted -> status = "Camera permission is required"; !locationGranted -> status = "Location permission is required"; else -> captureGps() }
+        when {
+            !cameraGranted && !locationGranted -> status = "Camera and location permissions are required"
+            !cameraGranted -> status = "Camera permission is required"
+            !locationGranted -> status = "Location permission is required"
+            else -> captureGps()
+        }
     }
+
     LaunchedEffect(Unit) {
         val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         val locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!cameraGranted || !locationGranted) permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) else captureGps()
     }
+
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (locationGranted) captureGps()
+            }
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+
     val manual = odometer.toDoubleOrNull()
     val verification = if (manual != null && ocr != null) OdometerVerifier.compare(manual, ocr!!.reading, ocr!!.confidence) else null
     val canOpen = !busy && manual != null && manual >= 0 && photoPath != null && gps?.isUsable() == true && ocr != null
@@ -73,7 +103,7 @@ fun SessionStartScreen(driverId: String, vehicleId: String, onStart: suspend (Do
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             CabCard(color = CabPurpleSoft) {
                 Text("Let’s get you on the road", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                Text("We’ll capture the starting odometer and location before opening today’s session.", color = CabGray)
+                Text("We’ll capture the starting odometer and mandatory GPS location before opening today’s session.", color = CabGray)
             }
             CabStep("1", "Starting odometer photo", captureComplete) {
                 if (!captureComplete) {
@@ -93,12 +123,21 @@ fun SessionStartScreen(driverId: String, vehicleId: String, onStart: suspend (Do
                     CabSecondaryButton("Retake photo", enabled = !busy) { captureComplete = false; ocr = null; photoPath = null; status = "Take a clear photo of the dashboard odometer." }
                 }
             }
-            CabStep("2", "Current location", gps?.isUsable() == true) {
-                Text(if (gps == null) "Waiting for GPS…" else "Accuracy needs improvement before the session can start.", color = CabGray)
-                CabSecondaryButton("Refresh location", enabled = !busy, onClick = { captureGps() })
+            CabStep("2", "Mandatory GPS location", gps?.isUsable() == true) {
+                Text(
+                    when {
+                        gps?.isUsable() == true -> "GPS captured. Accuracy ±${gps!!.accuracyMeters.toInt()} m"
+                        gps != null -> "GPS is available but accuracy is not sufficient yet."
+                        else -> "GPS is required. Location services must be turned on before you can continue."
+                    },
+                    color = CabGray
+                )
             }
             if (gps?.isUsable() == true) {
-                CabCard(color = CabGreenSoft) { Text("Location ready ✓", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = CabGreen); Text("Accuracy ±${gps!!.accuracyMeters.toInt()} m", color = CabGray) }
+                CabCard(color = CabGreenSoft) {
+                    Text("Location ready ✓", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = CabGreen)
+                    Text("Accuracy ±${gps!!.accuracyMeters.toInt()} m", color = CabGray)
+                }
             }
             CabStep("3", "Confirm starting odometer", false) {
                 OutlinedTextField(value = odometer, onValueChange = { odometer = it }, label = { Text("Starting odometer (km)") }, supportingText = { Text("Enter the number shown on the dashboard") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
