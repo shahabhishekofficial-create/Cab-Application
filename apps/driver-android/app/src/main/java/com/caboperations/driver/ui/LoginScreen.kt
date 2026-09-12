@@ -45,6 +45,7 @@ fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
             }
             Text("Welcome back", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text("Sign in to manage your cab day", color = CabGray)
+            Text("App version 1.1", style = MaterialTheme.typography.labelMedium, color = CabGray)
 
             CabCard {
                 Text("Driver login", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
