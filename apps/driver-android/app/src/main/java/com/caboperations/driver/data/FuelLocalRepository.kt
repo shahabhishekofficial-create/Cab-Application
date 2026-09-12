@@ -1,6 +1,7 @@
 package com.caboperations.driver.data
 
 import androidx.room.withTransaction
+import com.caboperations.driver.location.LocationSnapshot
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.Instant
@@ -25,18 +26,20 @@ class FuelLocalRepository(private val context: android.content.Context) {
         longitude: Double? = null,
         gpsAccuracyM: Double? = null,
         recordedAt: String = Instant.now().toString(),
-        notes: String? = null
+        notes: String? = null,
+        location: LocationSnapshot
     ): String {
         require(quantity > 0) { "Fuel quantity must be positive" }
         require(rate >= 0 && amount >= 0 && odometer >= 0) { "Invalid fuel values" }
         require(kotlin.math.abs(amount - quantity * rate) <= 0.01) { "Fuel amount must equal quantity × rate" }
+        require(location.isUsable()) { "GPS accuracy is insufficient or location is stale" }
 
         val id = UUID.randomUUID().toString()
         val payload = buildJsonObject {
             put("clientTransactionId", id); put("sessionId", sessionId); put("driverId", driverId); put("vehicleId", vehicleId)
             put("fuelType", fuelType); put("odometer", odometer); put("quantity", quantity); put("unit", unit); put("rate", rate); put("amount", amount)
             paymentMethod?.let { put("paymentMethod", it) }; receiptFileId?.let { put("receiptFileId", it) }
-            latitude?.let { put("latitude", it) }; longitude?.let { put("longitude", it) }; gpsAccuracyM?.let { put("gpsAccuracyM", it) }
+            put("latitude", location.latitude); put("longitude", location.longitude); put("gpsAccuracyM", location.accuracyMeters.toDouble())
             put("recordedAt", recordedAt); notes?.let { put("notes", it) }
         }.toString()
 
