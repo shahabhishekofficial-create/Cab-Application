@@ -6,10 +6,25 @@ export async function createTrip(input: Record<string, unknown>) {
     p_driver_id: input.driverId, p_vehicle_id: input.vehicleId, p_platform_id: input.platformId ?? null,
     p_started_at: input.startedAt, p_ended_at: input.endedAt ?? null, p_pickup: input.pickup ?? null,
     p_dropoff: input.dropoff ?? null, p_start_odometer: input.startOdometer, p_end_odometer: input.endOdometer ?? null,
-    p_gross_fare: input.grossFare, p_payment_method: input.paymentMethod ?? null,
+    p_gross_fare: input.grossFare ?? 0, p_payment_method: input.paymentMethod ?? null,
     p_additional_charges: input.additionalCharges ?? 0, p_status: input.status,
     p_latitude: input.latitude, p_longitude: input.longitude, p_gps_accuracy_m: input.gpsAccuracyM,
     p_gps_at: input.gpsAt, p_notes: input.notes ?? null,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function endTrip(input: Record<string, unknown>) {
+  const { data, error } = await getSupabaseAdmin().rpc('end_trip', {
+    p_client_transaction_id: input.tripClientTransactionId,
+    p_session_id: input.sessionId, p_driver_id: input.driverId, p_vehicle_id: input.vehicleId,
+    p_ended_at: input.endedAt, p_end_odometer: input.endOdometer, p_gross_fare: input.grossFare,
+    p_payment_method: input.paymentMethod ?? null, p_additional_charges: input.additionalCharges ?? 0,
+    p_status: input.status, p_latitude: input.latitude, p_longitude: input.longitude,
+    p_gps_accuracy_m: input.gpsAccuracyM, p_gps_at: input.gpsAt,
+    p_pickup: input.pickup ?? null, p_dropoff: input.dropoff ?? null,
+    p_platform_id: input.platformId ?? null, p_notes: input.notes ?? null,
   });
   if (error) throw error;
   return data;
