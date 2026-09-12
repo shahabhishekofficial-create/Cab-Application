@@ -11,10 +11,10 @@ import com.caboperations.driver.sync.SyncPolicy
 
 @Dao interface PendingTransactionDao {
  @Insert suspend fun insert(transaction: PendingTransaction)
- @Query("SELECT * FROM pending_transactions WHERE synced = 0 ORDER BY CASE type WHEN 'SESSION_START' THEN 0 WHEN 'TRIP_START' THEN 10 WHEN 'TRIP_END' THEN 11 WHEN 'TRIP' THEN 12 WHEN 'FUEL' THEN 12 WHEN 'EXPENSE' THEN 12 WHEN 'SESSION_CLOSE' THEN 20 WHEN 'FILE_UPLOAD' THEN 30 ELSE 40 END, createdAt LIMIT ${SyncPolicy.MAX_BATCH_SIZE}") suspend fun pending(): List<PendingTransaction>
+ @Query("SELECT * FROM pending_transactions WHERE synced = 0 AND attempts < ${SyncPolicy.MAX_RETRY_ATTEMPTS} ORDER BY CASE type WHEN 'SESSION_START' THEN 0 WHEN 'TRIP_START' THEN 10 WHEN 'TRIP_END' THEN 11 WHEN 'TRIP' THEN 12 WHEN 'FUEL' THEN 12 WHEN 'EXPENSE' THEN 12 WHEN 'SESSION_CLOSE' THEN 20 WHEN 'FILE_UPLOAD' THEN 30 ELSE 40 END, createdAt LIMIT ${SyncPolicy.MAX_BATCH_SIZE}") suspend fun pending(): List<PendingTransaction>
  @Query("UPDATE pending_transactions SET synced = 1, lastError = NULL WHERE clientTransactionId = :id") suspend fun markSynced(id:String)
  @Query("UPDATE pending_transactions SET attempts = attempts + 1, lastError = :error WHERE clientTransactionId = :id") suspend fun markFailed(id:String,error:String)
- @Query("SELECT COUNT(*) FROM pending_transactions WHERE synced = 0") suspend fun pendingCount():Int
+ @Query("SELECT COUNT(*) FROM pending_transactions WHERE synced = 0 AND attempts < ${SyncPolicy.MAX_RETRY_ATTEMPTS}") suspend fun pendingCount():Int
  @Query("SELECT COUNT(*) FROM pending_transactions WHERE synced = 0 AND attempts >= ${SyncPolicy.MAX_RETRY_ATTEMPTS}") suspend fun exhaustedCount():Int
  @Query("SELECT * FROM pending_transactions WHERE clientTransactionId = :id LIMIT 1") suspend fun find(id:String):PendingTransaction?
 }
