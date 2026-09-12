@@ -4,8 +4,11 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -47,6 +50,7 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
     var status by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
     var registration by remember { mutableStateOf("") }
+    var showLogoutConfirm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun authenticatedDestination(): String = if (driverPermissionsGranted(context)) "HOME" else "PERMISSIONS"
@@ -66,7 +70,7 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
         } else {
             sessionState.close()
             currentSession = null
-            status = "A stale local session was cleared; active assignment is unchanged"
+            status = "A stale local session was cleared safely."
         }
     }
 
@@ -84,7 +88,7 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
         }
         if (identity.driverId != null && identity.vehicleId != null) {
             restoreLocalSessionIfValid()
-            status = "Offline mode • server unavailable; local entries remain safe"
+            status = "Offline mode • server unavailable. Local entries are safe."
             return true
         }
         return false
@@ -103,21 +107,27 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
             auth.logout()
             identity.clearAssignment()
             sessionState.close()
-            status = result.exceptionOrNull()?.message ?: "GOOGLE_LOGIN_FAILED"
+            status = result.exceptionOrNull()?.message ?: "Google login failed"
             screen = "LOGIN"
         }
     }
 
     LaunchedEffect(Unit) {
         if (oauthUri == null) {
-            if (loadAuthenticatedDriver()) screen = authenticatedDestination() else { auth.logout(); identity.clearAssignment(); sessionState.close(); screen = "LOGIN" }
+            if (loadAuthenticatedDriver()) screen = authenticatedDestination()
+            else { auth.logout(); identity.clearAssignment(); sessionState.close(); screen = "LOGIN" }
         }
     }
     LaunchedEffect(screen) { refreshPending() }
 
     MaterialTheme {
         when {
-            screen == "LOADING" -> Box(Modifier.fillMaxSize().padding(24.dp)) { CircularProgressIndicator() }
+            screen == "LOADING" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator()
+                    Text("Loading Cab Operations…", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
             screen == "LOGIN" -> LoginScreen(auth) {
                 scope.launch {
                     if (loadAuthenticatedDriver()) { status = "Logged in • assignment loaded"; screen = authenticatedDestination() }
@@ -132,43 +142,91 @@ fun DriverApp(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
                     val sessionId = localRepository.queueStartSession(driverId, vehicleId, identity.deviceId, odo, gps.latitude, gps.longitude, gps.accuracyMeters, Instant.ofEpochMilli(gps.capturedAtEpochMs).toString(), photo, ocr, decision)
                     currentSession = sessionState.open(sessionId, driverId, vehicleId, odo)
                     refreshPending(); SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL)
-                    status = if (decision == OdometerVerifier.Decision.PASS) "Session saved locally • OCR PASS" else "Session saved locally • OCR REVIEW"
+                    status = if (decision == OdometerVerifier.Decision.PASS) "Session saved • OCR PASS • sync queued" else "Session saved • OCR REVIEW • sync queued"
                     screen = "HOME"
                 }, onCancel = { screen = "HOME" }
             )
             screen == "CLOSE" && currentSession != null && identity.driverId != null && identity.vehicleId != null -> SessionCloseScreen(
                 sessionId = currentSession!!.sessionId, driverId = identity.driverId!!, vehicleId = identity.vehicleId!!, startOdometer = currentSession!!.startOdometer,
-                onClosed = { sessionState.close(); currentSession = null; status = "Session close saved locally"; refreshPending(); SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); screen = "HOME" },
+                onClosed = { sessionState.close(); currentSession = null; status = "Session close saved • sync queued"; refreshPending(); SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); screen = "HOME" },
                 onCancel = { screen = "HOME" }
             )
             screen == "ENTRY" && currentSession != null && identity.driverId != null && identity.vehicleId != null -> TransactionEntryScreen(
                 type = entryType, sessionId = currentSession!!.sessionId, driverId = identity.driverId!!, vehicleId = identity.vehicleId!!,
-                onSaved = { status = "${entryType.replaceFirstChar { it.uppercase() }} saved offline"; refreshPending(); SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); screen = "HOME" }, onCancel = { screen = "HOME" }
+                onSaved = { status = "${entryType.replaceFirstChar { it.uppercase() }} saved • sync queued"; refreshPending(); SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); screen = "HOME" }, onCancel = { screen = "HOME" }
             )
-            else -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("Cab Driver", style = MaterialTheme.typography.headlineMedium)
-                if (identity.driverId == null || identity.vehicleId == null) Text("No active vehicle assignment. Contact admin.") else {
-                    if (displayName.isNotBlank()) Text(displayName)
-                    if (registration.isNotBlank()) Text("Vehicle: $registration")
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("SESSION", style = MaterialTheme.typography.labelLarge)
-                            Text(if (currentSession != null) "OPEN" else "NOT STARTED", style = MaterialTheme.typography.titleLarge)
-                            currentSession?.let { Text("Session: ${it.sessionId}") }
-                            Text("Pending sync: $pendingCount")
-                            if (exhaustedCount > 0) Text("Sync attention required: $exhaustedCount")
+            else -> {
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column {
+                            Text("Cab Operations", style = MaterialTheme.typography.headlineSmall)
+                            Text(if (displayName.isBlank()) "Driver" else displayName, style = MaterialTheme.typography.bodyLarge)
+                            if (registration.isNotBlank()) Text(registration, style = MaterialTheme.typography.labelLarge)
+                        }
+                        if (pendingCount == 0 && exhaustedCount == 0) AssistChip(onClick = {}, label = { Text("SYNCED") })
+                        else AssistChip(onClick = {}, label = { Text("$pendingCount PENDING") })
+                    }
+
+                    if (identity.driverId == null || identity.vehicleId == null) {
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("No active vehicle assignment", style = MaterialTheme.typography.titleMedium)
+                                Text("Ask the admin to assign a vehicle before starting a session.")
+                            }
+                        }
+                    } else {
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("TODAY'S SESSION", style = MaterialTheme.typography.labelLarge)
+                                Text(if (currentSession == null) "Not started" else "Session open", style = MaterialTheme.typography.headlineSmall)
+                                currentSession?.let { Text("Started at ${it.startOdometer.toInt()} km") }
+                                if (currentSession == null) {
+                                    Button({ screen = if (driverPermissionsGranted(context)) "START" else "PERMISSIONS" }, Modifier.fillMaxWidth()) { Text("START SESSION") }
+                                } else {
+                                    Text("Record every trip, fuel fill and expense while the session is open.", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+
+                        if (currentSession != null) {
+                            Text("RECORD", style = MaterialTheme.typography.labelLarge)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button({ entryType = "TRIP"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("TRIP") }
+                                Button({ entryType = "FUEL"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("FUEL") }
+                            }
+                            OutlinedButton({ entryType = "EXPENSE"; screen = "ENTRY" }, Modifier.fillMaxWidth()) { Text("ADD EXPENSE") }
+                            OutlinedButton({ screen = "CLOSE" }, Modifier.fillMaxWidth()) { Text("CLOSE SESSION") }
                         }
                     }
-                    if (currentSession == null) Button({ screen = if (driverPermissionsGranted(context)) "START" else "PERMISSIONS" }, Modifier.fillMaxWidth()) { Text("START SESSION") } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { Button({ entryType = "TRIP"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("ADD TRIP") }; Button({ entryType = "FUEL"; screen = "ENTRY" }, Modifier.weight(1f)) { Text("FUEL") } }
-                        OutlinedButton({ entryType = "EXPENSE"; screen = "ENTRY" }, Modifier.fillMaxWidth()) { Text("EXPENSE") }
-                        OutlinedButton({ screen = "CLOSE" }, Modifier.fillMaxWidth()) { Text("CLOSE SESSION") }
+
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Text("SYNC STATUS", style = MaterialTheme.typography.labelLarge)
+                            Text(if (pendingCount == 0) "All saved data is synced" else "$pendingCount item${if (pendingCount == 1) "" else "s"} waiting to sync")
+                            if (exhaustedCount > 0) Text("$exhaustedCount item${if (exhaustedCount == 1) "" else "s"} need attention after repeated failures.", color = MaterialTheme.colorScheme.error)
+                            Text("You can continue working offline. Data stays on the phone until the server accepts it.", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
+                    if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { showLogoutConfirm = true }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("LOG OUT") }
+                    Text("Cab Operations • Offline-first", style = MaterialTheme.typography.labelSmall, modifier = Modifier.align(Alignment.CenterHorizontally))
                 }
-                if (status.isNotBlank()) Text(status)
-                Text("Offline-first: entries are saved locally and sync when connectivity returns.")
-                TextButton(onClick = { auth.logout(); identity.clearAssignment(); sessionState.close(); currentSession = null; screen = "LOGIN" }) { Text("LOG OUT") }
             }
+        }
+
+        if (showLogoutConfirm) {
+            AlertDialog(
+                onDismissRequest = { showLogoutConfirm = false },
+                title = { Text("Log out?") },
+                text = { Text(if (pendingCount > 0) "There are $pendingCount unsynced items. Logging out is safe, but keep the app installed so they can sync later." else "You can log in again at any time.") },
+                confirmButton = {
+                    TextButton(onClick = { showLogoutConfirm = false; auth.logout(); identity.clearAssignment(); sessionState.close(); currentSession = null; screen = "LOGIN" }) { Text("LOG OUT") }
+                },
+                dismissButton = { TextButton(onClick = { showLogoutConfirm = false }) { Text("CANCEL") } },
+            )
         }
     }
 }
