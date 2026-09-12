@@ -8,7 +8,7 @@ export async function registerPlatformRoutes(app: FastifyInstance): Promise<void
       await requireDriver(request);
       const { data, error } = await getSupabaseAdmin()
         .from('platforms')
-        .select('id,name,code,is_active')
+        .select('id,name,is_active')
         .eq('is_active', true)
         .order('name');
       if (error) throw error;
