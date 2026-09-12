@@ -19,7 +19,7 @@ function syncErrorCode(error: unknown): string {
     'DRIVER_VEHICLE_NOT_ASSIGNED', 'VEHICLE_NOT_ACTIVE', 'SESSION_ALREADY_OPEN', 'NO_OPEN_SESSION', 'SESSION_CLOSED',
     'SESSION_DRIVER_MISMATCH', 'SESSION_VEHICLE_MISMATCH', 'SESSION_IDENTITY_MISMATCH', 'SESSION_NOT_OPEN',
     'INVALID_CLOSE_ODOMETER', 'CLOSE_TIME_BEFORE_START', 'SESSION_ID_MISMATCH', 'ODOMETER_REGRESSION',
-    'FUEL_AMOUNT_MISMATCH', 'SESSION_NOT_FOUND',
+    'FUEL_AMOUNT_MISMATCH', 'SESSION_NOT_FOUND', 'GPS_REQUIRED', 'GPS_INVALID_COORDINATES', 'GPS_ACCURACY_TOO_LOW', 'GPS_STALE',
   ];
   return known.find((value) => message.includes(value)) ?? 'SYNC_FAILED';
 }
@@ -29,10 +29,8 @@ export async function registerSyncRoutes(app: FastifyInstance) {
     let identity;
     try { identity = await requireDriver(request); }
     catch (error) { const response = authErrorResponse(error); if (response) return reply.code(response.status).send(response.body); throw error; }
-
     const parsed = syncSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.issues });
-
     const results = [];
     for (const item of parsed.data.transactions) {
       const clientTransactionId = typeof item.payload.clientTransactionId === 'string' ? item.payload.clientTransactionId : null;
