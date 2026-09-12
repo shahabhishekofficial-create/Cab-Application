@@ -1,6 +1,7 @@
 package com.caboperations.driver.data
 
 import androidx.room.withTransaction
+import com.caboperations.driver.location.LocationSnapshot
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.Instant
@@ -24,12 +25,14 @@ class TripLocalRepository(private val context: android.content.Context) {
         additionalCharges: Double = 0.0,
         startedAt: String = Instant.now().toString(),
         endedAt: String? = null,
-        notes: String? = null
+        notes: String? = null,
+        location: LocationSnapshot
     ): String {
         require(startOdometer >= 0) { "Start odometer cannot be negative" }
         require(endOdometer == null || endOdometer >= startOdometer) { "End odometer cannot be less than start odometer" }
         require(grossFare >= 0) { "Gross fare cannot be negative" }
         require(additionalCharges >= 0) { "Additional charges cannot be negative" }
+        require(location.isUsable()) { "GPS accuracy is insufficient or location is stale" }
 
         val id = UUID.randomUUID().toString()
         val payload = buildJsonObject {
@@ -37,7 +40,10 @@ class TripLocalRepository(private val context: android.content.Context) {
             platformId?.let { put("platformId", it) }; put("startedAt", startedAt); endedAt?.let { put("endedAt", it) }
             pickup?.let { put("pickup", it) }; dropoff?.let { put("dropoff", it) }; put("startOdometer", startOdometer)
             endOdometer?.let { put("endOdometer", it) }; put("grossFare", grossFare); paymentMethod?.let { put("paymentMethod", it) }
-            put("additionalCharges", additionalCharges); put("status", status); notes?.let { put("notes", it) }
+            put("additionalCharges", additionalCharges); put("status", status)
+            put("latitude", location.latitude); put("longitude", location.longitude)
+            put("gpsAccuracyM", location.accuracyMeters.toDouble()); put("gpsAt", Instant.ofEpochMilli(location.capturedAtEpochMs).toString())
+            notes?.let { put("notes", it) }
         }.toString()
 
         db.withTransaction {
