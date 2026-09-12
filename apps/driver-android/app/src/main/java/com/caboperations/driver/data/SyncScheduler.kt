@@ -27,31 +27,28 @@ object SyncScheduler {
     private val nextImmediateAllowedAt = AtomicLong(0L)
 
     /**
-     * One immediate attempt for foreground responsiveness plus a delayed,
-     * durable WorkManager fallback. Repeated lifecycle callbacks cannot create
-     * a burst of identical API attempts.
+     * Sync is best-effort from the UI lifecycle. A scheduler/database/configuration
+     * failure must never terminate the driver application process.
      */
     fun enqueue(context: Context, apiBaseUrl: String = BuildConfig.API_BASE_URL) {
         val appContext = context.applicationContext
-
-        // Schedule the durable fallback first so process death cannot lose it.
-        // Delay it so a successful immediate sync is not followed by a duplicate
-        // request a few milliseconds later.
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-        val request = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-            .setInitialDelay(15, TimeUnit.SECONDS)
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .setInputData(workDataOf(SyncWorker.KEY_BASE_URL to apiBaseUrl))
-            .build()
-        WorkManager.getInstance(appContext).enqueueUniqueWork(
-            UNIQUE_WORK,
-            ExistingWorkPolicy.KEEP,
-            request
-        )
+        runCatching {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+            val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+                .setInitialDelay(15, TimeUnit.SECONDS)
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setInputData(workDataOf(SyncWorker.KEY_BASE_URL to apiBaseUrl))
+                .build()
+            WorkManager.getInstance(appContext).enqueueUniqueWork(
+                UNIQUE_WORK,
+                ExistingWorkPolicy.KEEP,
+                request
+            )
+        }
 
         val now = SystemClock.elapsedRealtime()
         if (now < nextImmediateAllowedAt.get()) return
@@ -59,10 +56,8 @@ object SyncScheduler {
 
         immediateScope.launch {
             try {
-                val success = SyncEngine.run(appContext, apiBaseUrl)
+                val success = runCatching { SyncEngine.run(appContext, apiBaseUrl) }.getOrDefault(false)
                 if (!success) {
-                    // WorkManager owns subsequent retries; don't let repeated
-                    // onResume/local-save callbacks hammer the same transaction.
                     nextImmediateAllowedAt.set(SystemClock.elapsedRealtime() + FAILED_IMMEDIATE_COOLDOWN_MS)
                 }
             } finally {
