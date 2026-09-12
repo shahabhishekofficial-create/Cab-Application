@@ -6,16 +6,15 @@ import { authErrorResponse, requireDriver } from '../auth/driver-auth.js';
 function errorResponse(reply: any, error: unknown) {
   const auth = authErrorResponse(error);
   if (auth) return reply.code(auth.status).send(auth.body);
-
   const message = error instanceof Error ? error.message : String(error);
   const known = [
     'DRIVER_VEHICLE_NOT_ASSIGNED', 'VEHICLE_NOT_ACTIVE', 'SESSION_NOT_OPEN', 'SESSION_CLOSED',
     'SESSION_DRIVER_MISMATCH', 'SESSION_VEHICLE_MISMATCH', 'SESSION_IDENTITY_MISMATCH',
     'ODOMETER_REGRESSION', 'FUEL_AMOUNT_MISMATCH', 'SESSION_NOT_FOUND',
+    'GPS_REQUIRED', 'GPS_INVALID_COORDINATES', 'GPS_ACCURACY_TOO_LOW', 'GPS_STALE',
   ];
   const code = known.find((value) => message.includes(value));
   if (code) return reply.code(409).send({ error: code, message });
-
   return reply.code(500).send({ error: 'TRANSACTION_FAILED' });
 }
 
