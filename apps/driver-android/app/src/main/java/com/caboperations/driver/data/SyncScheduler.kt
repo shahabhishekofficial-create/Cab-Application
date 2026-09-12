@@ -40,9 +40,12 @@ object SyncScheduler {
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .setInputData(workDataOf(SyncWorker.KEY_BASE_URL to apiBaseUrl))
             .build()
+        // Never cancel an already-running durable retry because the activity
+        // resumed or another local save triggered enqueue(). The immediate path
+        // above handles the new work; WorkManager remains the durable fallback.
         WorkManager.getInstance(appContext).enqueueUniqueWork(
             UNIQUE_WORK,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             request
         )
     }
