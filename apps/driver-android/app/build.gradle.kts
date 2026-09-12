@@ -18,8 +18,8 @@ android {
         applicationId = "com.caboperations.driver"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.1"
+        versionCode = 12
+        versionName = "1.2"
         buildConfigField("String", "API_BASE_URL", "\"${project.findProperty("API_BASE_URL") ?: "https://cab-application-z4ow.onrender.com"}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${project.findProperty("SUPABASE_URL") ?: ""}\"")
         val publishableKey = project.findProperty("SUPABASE_PUBLISHABLE_KEY")
