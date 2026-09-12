@@ -1,6 +1,7 @@
 package com.caboperations.driver.data
 
 import androidx.room.withTransaction
+import com.caboperations.driver.location.LocationSnapshot
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.Instant
@@ -22,30 +23,24 @@ class ExpenseLocalRepository(private val context: android.content.Context) {
         longitude: Double? = null,
         gpsAccuracyM: Double? = null,
         recordedAt: String = Instant.now().toString(),
-        notes: String? = null
+        notes: String? = null,
+        location: LocationSnapshot
     ): String {
         require(amount > 0) { "Expense amount must be greater than zero" }
         require(odometer == null || odometer >= 0) { "Expense odometer cannot be negative" }
+        require(location.isUsable()) { "GPS accuracy is insufficient or location is stale" }
 
         val id = UUID.randomUUID().toString()
         val payload = buildJsonObject {
-            put("clientTransactionId", id)
-            put("sessionId", sessionId)
-            put("driverId", driverId)
-            put("vehicleId", vehicleId)
-            categoryId?.let { put("categoryId", it) }
-            put("amount", amount)
-            paymentMethod?.let { put("paymentMethod", it) }
-            proofFileId?.let { put("proofFileId", it) }
-            odometer?.let { put("odometer", it) }
-            latitude?.let { put("latitude", it) }
-            longitude?.let { put("longitude", it) }
-            gpsAccuracyM?.let { put("gpsAccuracyM", it) }
-            put("recordedAt", recordedAt)
-            notes?.let { put("notes", it) }
+            put("clientTransactionId", id); put("sessionId", sessionId); put("driverId", driverId); put("vehicleId", vehicleId)
+            categoryId?.let { put("categoryId", it) }; put("amount", amount); paymentMethod?.let { put("paymentMethod", it) }
+            proofFileId?.let { put("proofFileId", it) }; odometer?.let { put("odometer", it) }
+            put("latitude", location.latitude); put("longitude", location.longitude); put("gpsAccuracyM", location.accuracyMeters.toDouble())
+            put("recordedAt", recordedAt); notes?.let { put("notes", it) }
         }.toString()
 
         db.withTransaction {
+            odometer?.let { OdometerGuard.requireAtLeast(db, sessionId, it, "Expense odometer") }
             db.pendingTransactionDao().insert(PendingTransaction(id, "EXPENSE", payload, System.currentTimeMillis()))
             db.localExpenseDao().insert(LocalExpense(id, sessionId, amount, categoryId, false))
         }
