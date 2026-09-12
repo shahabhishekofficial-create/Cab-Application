@@ -100,7 +100,18 @@ object SyncEngine {
                     dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE")
                     continue
                 }
-                api.post(p, item.payloadJson, driverId, vehicleId)
+                // Older app builds queued startOdometerFileId on SESSION_START,
+                // but the server session row has a foreign key to files and the
+                // upload is a later transaction. Strip the legacy field during
+                // sync so existing queued sessions can migrate safely. The
+                // subsequent FILE_UPLOAD transaction attaches the file after the
+                // session exists.
+                val body = if (item.type == TYPE_SESSION_START && json.containsKey("startOdometerFileId")) {
+                    buildJsonObject {
+                        json.forEach { (key, value) -> if (key != "startOdometerFileId") put(key, value) }
+                    }.toString()
+                } else item.payloadJson
+                api.post(p, body, driverId, vehicleId)
             }
 
             if (result.success) {
@@ -121,7 +132,14 @@ object SyncEngine {
                 val retryResult = if (item.type == TYPE_FILE_UPLOAD) {
                     val uploaded = upload()
                     if (uploaded?.success == true) attachOdometerFile() else uploaded
-                } else p?.let { api.post(it, item.payloadJson, driverId, vehicleId) }
+                } else if (p != null) {
+                    val body = if (item.type == TYPE_SESSION_START && json.containsKey("startOdometerFileId")) {
+                        buildJsonObject {
+                            json.forEach { (key, value) -> if (key != "startOdometerFileId") put(key, value) }
+                        }.toString()
+                    } else item.payloadJson
+                    api.post(p, body, driverId, vehicleId)
+                } else null
                 if (retryResult?.success == true) {
                     dao.markSynced(item.clientTransactionId)
                     continue
