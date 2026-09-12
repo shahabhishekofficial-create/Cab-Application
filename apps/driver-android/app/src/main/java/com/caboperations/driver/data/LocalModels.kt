@@ -32,6 +32,10 @@ data class LocalTrip(
     val endOdometer: Double?,
     val grossFare: Double,
     val status: String,
+    val latitude: Double,
+    val longitude: Double,
+    val gpsAccuracyM: Double,
+    val gpsAt: String,
     val synced: Boolean = false
 )
 
