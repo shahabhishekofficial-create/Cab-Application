@@ -26,9 +26,6 @@ object SyncEngine {
         val auth = AuthRepository(context)
         val currentSession = auth.session()
         val tokenResult = auth.refreshIfNeeded()
-        // A transient refresh failure must not suppress the actual API sync. If a
-        // cached access token exists, use it and let the API decide whether it is
-        // still valid; a 401 below will trigger the normal forced-refresh path.
         if (tokenResult.isFailure && currentSession == null) return@withLock false
         var token = tokenResult.getOrNull()?.accessToken ?: currentSession?.accessToken ?: return@withLock false
         var api = ApiClient(baseUrl, token)
@@ -80,6 +77,18 @@ object SyncEngine {
                 return api.uploadFile("/v1/files", fileId, objectPath, mime, file.readBytes(), captured)
             }
 
+            // File IDs are foreign keys. Business transactions must be accepted
+            // first; the FILE_UPLOAD transaction attaches the uploaded file later.
+            // This applies to both session-start and session-close odometer files.
+            fun businessBody(): String = when (item.type) {
+                TYPE_SESSION_START, TYPE_SESSION_CLOSE -> buildJsonObject {
+                    json.forEach { (key, value) ->
+                        if (key != "startOdometerFileId" && key != "closeOdometerFileId") put(key, value)
+                    }
+                }.toString()
+                else -> item.payloadJson
+            }
+
             result = if (item.type == TYPE_FILE_UPLOAD) {
                 val filePath = json["localFilePath"]?.jsonPrimitive?.content
                 val fileId = json["fileId"]?.jsonPrimitive?.content
@@ -100,16 +109,7 @@ object SyncEngine {
                     dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE")
                     continue
                 }
-                // Older app builds queued startOdometerFileId on SESSION_START,
-                // but the server session row has a foreign key to files and the
-                // upload is a later transaction. Strip the legacy field during
-                // sync so existing queued sessions can migrate safely.
-                val body = if (item.type == TYPE_SESSION_START && json.containsKey("startOdometerFileId")) {
-                    buildJsonObject {
-                        json.forEach { (key, value) -> if (key != "startOdometerFileId") put(key, value) }
-                    }.toString()
-                } else item.payloadJson
-                api.post(p, body, driverId, vehicleId)
+                api.post(p, businessBody(), driverId, vehicleId)
             }
 
             if (result.success) {
@@ -128,15 +128,11 @@ object SyncEngine {
                 token = newToken
                 api = ApiClient(baseUrl, token)
                 val p = path()
-                val body = if (item.type == TYPE_SESSION_START && json.containsKey("startOdometerFileId")) {
-                    buildJsonObject {
-                        json.forEach { (key, value) -> if (key != "startOdometerFileId") put(key, value) }
-                    }.toString()
-                } else item.payloadJson
+                val retryBody = businessBody()
                 val retryResult = if (item.type == TYPE_FILE_UPLOAD) {
                     val uploaded = upload()
                     if (uploaded?.success == true) attachOdometerFile() else uploaded
-                } else p?.let { api.post(it, body, driverId, vehicleId) }
+                } else p?.let { api.post(it, retryBody, driverId, vehicleId) }
                 if (retryResult?.success == true) {
                     dao.markSynced(item.clientTransactionId)
                     continue
@@ -145,9 +141,6 @@ object SyncEngine {
                 dao.markFailed(item.clientTransactionId, error)
                 retry = dao.find(item.clientTransactionId)?.attempts?.let { it < SyncPolicy.MAX_RETRY_ATTEMPTS } ?: false
             } else if (result.retryable) {
-                // Count transient failures too. Previously these never incremented
-                // attempts, which allowed one broken transaction to hammer the API
-                // indefinitely through immediate sync + WorkManager.
                 dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_RETRYABLE_FAILURE")
                 retry = dao.find(item.clientTransactionId)?.attempts?.let { it < SyncPolicy.MAX_RETRY_ATTEMPTS } ?: false
             } else {
