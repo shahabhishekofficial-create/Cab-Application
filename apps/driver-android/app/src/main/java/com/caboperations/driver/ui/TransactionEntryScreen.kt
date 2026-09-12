@@ -9,173 +9,46 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.caboperations.driver.BuildConfig
 import com.caboperations.driver.auth.AuthRepository
-import com.caboperations.driver.data.ExpenseLocalRepository
-import com.caboperations.driver.data.FuelLocalRepository
-import com.caboperations.driver.data.TripLocalRepository
+import com.caboperations.driver.data.*
 import com.caboperations.driver.location.FusedLocationProvider
 import com.caboperations.driver.location.LocationSnapshot
-import com.caboperations.driver.network.ExpenseCategoryOption
-import com.caboperations.driver.network.ExpenseCategoryRepository
-import com.caboperations.driver.network.PlatformOption
-import com.caboperations.driver.network.PlatformRepository
+import com.caboperations.driver.network.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Duration
+import java.time.Instant
 
 private enum class EntryType { TRIP, FUEL, EXPENSE }
-private val paymentMethods = listOf("CASH", "UPI", "CARD", "BANK", "OTHER")
-private val tripStatuses = listOf("COMPLETED", "CANCELLED_BY_CUSTOMER", "CANCELLED_BY_DRIVER", "CUSTOMER_NO_SHOW")
+private val paymentMethods=listOf("CASH","UPI","CARD","BANK","OTHER")
+private val tripStatuses=listOf("COMPLETED","CANCELLED_BY_CUSTOMER","CANCELLED_BY_DRIVER","CUSTOMER_NO_SHOW")
 
 @Composable
-fun TransactionEntryScreen(type: String, sessionId: String, driverId: String, vehicleId: String, onSaved: (String) -> Unit, onCancel: () -> Unit) {
-    val entryType = runCatching { EntryType.valueOf(type) }.getOrElse { EntryType.TRIP }
-    val context = LocalContext.current
-    val owner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
-    val auth = remember { AuthRepository(context) }
-    var startOdo by remember { mutableStateOf("") }; var endOdo by remember { mutableStateOf("") }; var fare by remember { mutableStateOf("") }; var additionalCharges by remember { mutableStateOf("0") }
-    var payment by remember { mutableStateOf("UPI") }; var status by remember { mutableStateOf("COMPLETED") }; var pickup by remember { mutableStateOf("") }; var dropoff by remember { mutableStateOf("") }
-    var fuelType by remember { mutableStateOf("CNG") }; var quantity by remember { mutableStateOf("") }; var unit by remember { mutableStateOf("KG") }; var rate by remember { mutableStateOf("") }
-    var amount by remember { mutableStateOf("") }; var category by remember { mutableStateOf<ExpenseCategoryOption?>(null) }; var categories by remember { mutableStateOf<List<ExpenseCategoryOption>>(emptyList()) }; var notes by remember { mutableStateOf("") }
-    var platforms by remember { mutableStateOf<List<PlatformOption>>(emptyList()) }; var selectedPlatform by remember { mutableStateOf<PlatformOption?>(null) }
-    var platformMenu by remember { mutableStateOf(false) }; var categoryMenu by remember { mutableStateOf(false) }; var paymentMenu by remember { mutableStateOf(false) }; var statusMenu by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }; var gps by remember { mutableStateOf<LocationSnapshot?>(null) }; var gpsStatus by remember { mutableStateOf("Getting GPS location…") }
+fun TransactionEntryScreen(type:String,sessionId:String,driverId:String,vehicleId:String,onSaved:(String)->Unit,onCancel:()->Unit){
+ val entryType=runCatching{EntryType.valueOf(type)}.getOrElse{EntryType.TRIP};val context=LocalContext.current;val owner=LocalLifecycleOwner.current;val scope=rememberCoroutineScope();val auth=remember{AuthRepository(context)};val db=remember{CabDatabase.get(context)};val tripRepo=remember{TripLocalRepository(context)}
+ var activeTrip by remember{mutableStateOf<LocalTrip?>(null)};var tripStartedAt by remember{mutableStateOf<String?>(null)}
+ var startOdo by remember{mutableStateOf("")};var endOdo by remember{mutableStateOf("")};var fare by remember{mutableStateOf("")};var additionalCharges by remember{mutableStateOf("0")};var payment by remember{mutableStateOf("UPI")};var status by remember{mutableStateOf("COMPLETED")};var pickup by remember{mutableStateOf("")};var dropoff by remember{mutableStateOf("")};var notes by remember{mutableStateOf("")}
+ var fuelType by remember{mutableStateOf("CNG")};var quantity by remember{mutableStateOf("")};var unit by remember{mutableStateOf("KG")};var rate by remember{mutableStateOf("")};var amount by remember{mutableStateOf("")};var category by remember{mutableStateOf<ExpenseCategoryOption?>(null)};var categories by remember{mutableStateOf<List<ExpenseCategoryOption>>(emptyList())};var platforms by remember{mutableStateOf<List<PlatformOption>>(emptyList())};var selectedPlatform by remember{mutableStateOf<PlatformOption?>(null)}
+ var menu by remember{mutableStateOf<String?>(null)};var busy by remember{mutableStateOf(false)};var error by remember{mutableStateOf("")};var gps by remember{mutableStateOf<LocationSnapshot?>(null)};var gpsStatus by remember{mutableStateOf("Getting GPS location…")}
+ fun captureGps(){val provider=FusedLocationProvider(context);if(!provider.isLocationEnabled()){gps=null;gpsStatus="Location services are OFF. Turn on Location to continue.";runCatching{context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))};return};gpsStatus="Getting a precise GPS fix…";provider.currentLocation{location,locationError->gps=location;gpsStatus=when{location?.isUsable()==true->"GPS ready • accuracy ±${location.accuracyMeters.toInt()} m";location!=null->"GPS found, but accuracy is above 50 m. Waiting for a better fix…";else->"GPS unavailable${locationError?.let{": $it"}?:""}."}}}
+ fun loadActiveTrip(){scope.launch{activeTrip=withContext(Dispatchers.IO){db.localTripDao().active(sessionId)};val t=activeTrip;if(t!=null){tripStartedAt=withContext(Dispatchers.IO){db.pendingTransactionDao().find(t.clientTransactionId)}?.let{JsonUtil.startedAt(it.payloadJson)}}}}
+ LaunchedEffect(Unit){captureGps();if(entryType==EntryType.TRIP)loadActiveTrip()}
+ DisposableEffect(owner){val observer=LifecycleEventObserver{_,event->if(event==Lifecycle.Event.ON_RESUME){captureGps();if(entryType==EntryType.TRIP)loadActiveTrip()}};owner.lifecycle.addObserver(observer);onDispose{owner.lifecycle.removeObserver(observer)}}
+ LaunchedEffect(entryType){error="";val token=withContext(Dispatchers.IO){auth.refreshIfNeeded()}.getOrNull()?.accessToken?:return@LaunchedEffect;if(entryType==EntryType.TRIP){val r=withContext(Dispatchers.IO){PlatformRepository(BuildConfig.API_BASE_URL,token).load()};if(r.isSuccess){platforms=r.getOrNull().orEmpty();selectedPlatform=platforms.firstOrNull()}};if(entryType==EntryType.EXPENSE){val r=withContext(Dispatchers.IO){ExpenseCategoryRepository(BuildConfig.API_BASE_URL,token).load()};if(r.isSuccess)categories=r.getOrNull().orEmpty()}}
+ val qty=quantity.toDoubleOrNull();val fuelRate=rate.toDoubleOrNull();val fuelTotal=if(qty!=null&&fuelRate!=null&&qty>0&&fuelRate>=0)qty*fuelRate else null
+ fun save(){if(busy)return;val location=gps;if(location?.isUsable()!=true){error="A precise GPS location (accuracy ≤50 m and fresh within 60 seconds) is required before saving.";captureGps();return};busy=true;error="";scope.launch{try{val id=when(entryType){EntryType.TRIP->{if(activeTrip==null){val start=startOdo.toDoubleOrNull()?:error("Enter starting odometer");require(start>=0){"Odometer cannot be negative"};tripRepo.startTrip(sessionId,driverId,vehicleId,start,location,pickup.trim().ifBlank{null},selectedPlatform?.id,notes.trim().ifBlank{null})}else{val end=endOdo.toDoubleOrNull()?:error("Enter ending odometer");val gross=fare.toDoubleOrNull()?:error("Enter fare");val charges=additionalCharges.toDoubleOrNull()?:error("Enter additional charges");tripRepo.endTrip(activeTrip!!.clientTransactionId,sessionId,driverId,vehicleId,end,gross,location,payment,charges,status,pickup.trim().ifBlank{null},dropoff.trim().ifBlank{null},selectedPlatform?.id,notes.trim().ifBlank{null})}};EntryType.FUEL->{val odo=startOdo.toDoubleOrNull()?:error("Enter odometer");val q=qty?:error("Enter quantity");val r=fuelRate?:error("Enter rate");val total=fuelTotal?:error("Enter valid quantity and rate");FuelLocalRepository(context).queueFuel(sessionId,driverId,vehicleId,fuelType.trim(),odo,q,unit.trim(),r,total,payment,notes=notes.trim().ifBlank{null},location=location)};EntryType.EXPENSE->{val total=amount.toDoubleOrNull()?:error("Enter amount");val odo=startOdo.toDoubleOrNull();require(total>0){"Amount must be greater than zero"};ExpenseLocalRepository(context).queueExpense(sessionId,driverId,vehicleId,total,category?.id,payment,odometer=odo,notes=notes.trim().ifBlank{null},location=location)}};SyncScheduler.enqueue(context,BuildConfig.API_BASE_URL);if(entryType==EntryType.TRIP)loadActiveTrip();onSaved(id)}catch(e:IllegalArgumentException){error=e.message?:"Please check the details"}catch(e:Exception){error=e.message?:"Unable to save. Please try again."}finally{busy=false}}}
+ val active=entryType==EntryType.TRIP&&activeTrip!=null;val title=when{active->"Trip in progress";entryType==EntryType.TRIP->"Start a trip";entryType==EntryType.FUEL->"Record fuel";else->"Record an expense"};val subtitle=when{active->"End it when the passenger journey is finished";entryType==EntryType.TRIP->"Record the start once. The app remembers it.";entryType==EntryType.FUEL->"Capture fuel while the session is active";else->"Keep every cab expense accounted for"}
+ Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){CabHeader(title,subtitle,onBack=onCancel);Column(Modifier.padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){Surface(shape=RoundedCornerShape(14.dp),color=CabPurpleSoft){Text("Session active • saved on phone first • sync starts automatically",Modifier.fillMaxWidth().padding(12.dp),color=CabPurple,style=MaterialTheme.typography.bodySmall,fontWeight=FontWeight.SemiBold)};Surface(shape=RoundedCornerShape(14.dp),color=if(gps?.isUsable()==true)CabGreenSoft else CabAmberSoft){Text(gpsStatus,Modifier.fillMaxWidth().padding(13.dp),color=if(gps?.isUsable()==true)CabGreen else CabAmber,fontWeight=FontWeight.SemiBold)}
+ CabCard{when(entryType){EntryType.TRIP->{if(active){CabSectionLabel("ACTIVE TRIP");Text("Started ${tripStartedAt?.let{runCatching{Duration.between(Instant.parse(it),Instant.now()).toMinutes().coerceAtLeast(0)}.getOrNull()}?:0} min ago",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text("Start odometer: ${activeTrip!!.startOdometer.toInt()} km",color=CabGray);Text("The trip stays active even if you close the app.",color=CabGray)}else{CabSectionLabel("TRIP START");OutlinedTextField(startOdo,{startOdo=it},label={Text("Starting odometer (km)")},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp));OutlinedTextField(pickup,{pickup=it},label={Text("Pickup (optional)")},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(14.dp));Box{OutlinedButton({menu="platform"},Modifier.fillMaxWidth(),shape=RoundedCornerShape(14.dp)){Text("Platform: ${selectedPlatform?.name?:"Optional"}")};DropdownMenu(menu=="platform",{menu=null}){platforms.forEach{p->DropdownMenuItem({Text(p.name)},{selectedPlatform=p;menu=null})}}};Text("Start time and GPS are recorded automatically when you press Start Trip.",color=CabGray,style=MaterialTheme.typography.bodySmall)}};if(active){CabSectionLabel("TRIP END");OutlinedTextField(endOdo,{endOdo=it},label={Text("Ending odometer (km)")},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp));OutlinedTextField(fare,{fare=it},label={Text("Gross fare (₹)")},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp));OutlinedTextField(additionalCharges,{additionalCharges=it},label={Text("Additional charges (₹)")},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp));Box{OutlinedButton({menu="payment"},Modifier.fillMaxWidth(),shape=RoundedCornerShape(14.dp)){Text("Payment: $payment")};DropdownMenu(menu=="payment",{menu=null}){paymentMethods.forEach{p->DropdownMenuItem({Text(p)},{payment=p;menu=null})}}};OutlinedTextField(dropoff,{dropoff=it},label={Text("Drop (optional)")},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(14.dp));Box{OutlinedButton({menu="status"},Modifier.fillMaxWidth(),shape=RoundedCornerShape(14.dp)){Text("Trip status: ${status.replace('_',' ')}")};DropdownMenu(menu=="status",{menu=null}){tripStatuses.forEach{s->DropdownMenuItem({Text(s.replace('_',' '))},{status=s;menu=null})}}}}};EntryType.FUEL->{CabSectionLabel("FUEL DETAILS");OutlinedTextField(startOdo,{startOdo=it},label={Text("Odometer (km)")},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp));OutlinedTextField(fuelType,{fuelType=it},label={Text("Fuel type")},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){OutlinedTextField(quantity,{quantity=it},label={Text("Quantity")},modifier=Modifier.weight(1f),singleLine=true,shape=RoundedCornerShape(14.dp));OutlinedTextField(unit,{unit=it},label={Text("Unit")},modifier=Modifier.weight(1f),singleLine=true,shape=RoundedCornerShape(14.dp))};OutlinedTextField(rate,{rate=it},label={Text("Rate (₹)")},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp));Surface(shape=RoundedCornerShape(14.dp),color=CabAmberSoft){Text("Total fuel cost  ${fuelTotal?.let{"₹%.2f".format(it)}?:"—"}",Modifier.fillMaxWidth().padding(14.dp),color=CabAmber,fontWeight=FontWeight.Bold)};Box{OutlinedButton({menu="payment"},Modifier.fillMaxWidth(),shape=RoundedCornerShape(14.dp)){Text("Payment: $payment")};DropdownMenu(menu=="payment",{menu=null}){paymentMethods.forEach{p->DropdownMenuItem({Text(p)},{payment=p;menu=null})}}}};EntryType.EXPENSE->{CabSectionLabel("EXPENSE DETAILS");OutlinedTextField(amount,{amount=it},label={Text("Amount (₹)")},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp));Box{OutlinedButton({menu="category"},Modifier.fillMaxWidth(),shape=RoundedCornerShape(14.dp)){Text("Category: ${category?.name?:"Uncategorized"}")};DropdownMenu(menu=="category",{menu=null}){DropdownMenuItem({Text("Uncategorized")},{category=null;menu=null});categories.forEach{c->DropdownMenuItem({Text(c.name)},{category=c;menu=null})}}};Box{OutlinedButton({menu="payment"},Modifier.fillMaxWidth(),shape=RoundedCornerShape(14.dp)){Text("Payment: $payment")};DropdownMenu(menu=="payment",{menu=null}){paymentMethods.forEach{p->DropdownMenuItem({Text(p)},{payment=p;menu=null})}}};OutlinedTextField(startOdo,{startOdo=it},label={Text("Odometer (optional)")},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp))}};OutlinedTextField(notes,{notes=it},label={Text("Notes (optional)")},modifier=Modifier.fillMaxWidth(),minLines=2,shape=RoundedCornerShape(14.dp))}
+ if(error.isNotBlank())Surface(shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.errorContainer){Text(error,Modifier.fillMaxWidth().padding(12.dp),color=MaterialTheme.colorScheme.onErrorContainer)}
+ CabPrimaryButton(if(busy)"Saving…" else if(active)"End Trip" else if(entryType==EntryType.TRIP)"Start Trip" else "Save entry",enabled=!busy&&gps?.isUsable()==true,onClick={save()});if(active)Text("You can go back to the session and add fuel or other expenses at any time. The trip remains active until you press End Trip.",Modifier.fillMaxWidth(),color=CabGray,style=MaterialTheme.typography.bodySmall);else Text("GPS accuracy must be ≤50 m and the fix must be fresh. Internet is not required to save; sync starts automatically when possible.",Modifier.fillMaxWidth(),color=CabGray,style=MaterialTheme.typography.bodySmall);CabSecondaryButton("Back to session",enabled=!busy,onClick=onCancel)}}}
 
-    fun captureGps() {
-        val provider = FusedLocationProvider(context)
-        if (!provider.isLocationEnabled()) {
-            gps = null; gpsStatus = "Location services are OFF. Turn on Location to continue."
-            runCatching { context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }; return
-        }
-        gpsStatus = "Getting a precise GPS fix…"
-        provider.currentLocation { location, locationError ->
-            gps = location
-            gpsStatus = when {
-                location?.isUsable() == true -> "GPS ready • accuracy ±${location.accuracyMeters.toInt()} m"
-                location != null -> "GPS found, but accuracy is above 50 m. Waiting for a better fix…"
-                else -> "GPS unavailable${locationError?.let { ": $it" } ?: ""}."
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) { captureGps() }
-    DisposableEffect(owner) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) captureGps() }
-        owner.lifecycle.addObserver(observer); onDispose { owner.lifecycle.removeObserver(observer) }
-    }
-
-    LaunchedEffect(entryType) {
-        error = ""
-        val token = withContext(Dispatchers.IO) { auth.refreshIfNeeded() }.getOrNull()?.accessToken
-        if (token == null) { error = "Your login session has expired. Please log in again."; return@LaunchedEffect }
-        if (entryType == EntryType.TRIP) {
-            val result = withContext(Dispatchers.IO) { PlatformRepository(BuildConfig.API_BASE_URL, token).load() }
-            if (result.isSuccess) { platforms = result.getOrNull().orEmpty(); selectedPlatform = platforms.firstOrNull() } else error = "Platforms aren’t available right now. You can still save this trip."
-        }
-        if (entryType == EntryType.EXPENSE) {
-            val result = withContext(Dispatchers.IO) { ExpenseCategoryRepository(BuildConfig.API_BASE_URL, token).load() }
-            if (result.isSuccess) categories = result.getOrNull().orEmpty() else error = "Categories aren’t available right now. You can save this as Uncategorized."
-        }
-    }
-    val quantityValue = quantity.toDoubleOrNull(); val rateValue = rate.toDoubleOrNull()
-    val calculatedFuelAmount = if (quantityValue != null && rateValue != null && quantityValue > 0 && rateValue >= 0) quantityValue * rateValue else null
-
-    fun save() {
-        if (busy) return
-        val location = gps
-        if (location?.isUsable() != true) { error = "A precise GPS location (accuracy ≤50 m and fresh within 60 seconds) is required before saving."; captureGps(); return }
-        busy = true; error = ""
-        scope.launch {
-            try {
-                val id = when (entryType) {
-                    EntryType.TRIP -> {
-                        val start = startOdo.toDoubleOrNull() ?: error("Enter starting odometer")
-                        val end = endOdo.toDoubleOrNull() ?: error("Enter ending odometer")
-                        val gross = fare.toDoubleOrNull() ?: error("Enter fare")
-                        val charges = additionalCharges.toDoubleOrNull() ?: error("Enter additional charges")
-                        require(start >= 0 && end >= 0) { "Odometer cannot be negative" }; require(end >= start) { "Ending odometer cannot be less than starting odometer" }; require(gross >= 0) { "Fare cannot be negative" }; require(charges >= 0) { "Additional charges cannot be negative" }
-                        TripLocalRepository(context).queueTrip(
-                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, startOdometer = start, endOdometer = end, grossFare = gross, status = status,
-                            platformId = selectedPlatform?.id, pickup = pickup.trim().ifBlank { null }, dropoff = dropoff.trim().ifBlank { null }, paymentMethod = payment,
-                            additionalCharges = charges, notes = notes.trim().ifBlank { null }, location = location
-                        )
-                    }
-                    EntryType.FUEL -> {
-                        val odo = startOdo.toDoubleOrNull() ?: error("Enter odometer"); val qty = quantityValue ?: error("Enter quantity"); val fuelRate = rateValue ?: error("Enter rate"); val total = calculatedFuelAmount ?: error("Enter valid quantity and rate")
-                        require(odo >= 0) { "Odometer cannot be negative" }; require(qty > 0) { "Quantity must be greater than zero" }; require(fuelRate >= 0) { "Rate cannot be negative" }; require(total > 0) { "Amount must be greater than zero" }
-                        FuelLocalRepository(context).queueFuel(
-                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, fuelType = fuelType.trim(), odometer = odo, quantity = qty, unit = unit.trim(), rate = fuelRate, amount = total,
-                            paymentMethod = payment, notes = notes.trim().ifBlank { null }, location = location
-                        )
-                    }
-                    EntryType.EXPENSE -> {
-                        val total = amount.toDoubleOrNull() ?: error("Enter amount"); val odo = startOdo.toDoubleOrNull(); require(total > 0) { "Amount must be greater than zero" }; require(odo == null || odo >= 0) { "Odometer cannot be negative" }
-                        ExpenseLocalRepository(context).queueExpense(
-                            sessionId = sessionId, driverId = driverId, vehicleId = vehicleId, amount = total, categoryId = category?.id, paymentMethod = payment, odometer = odo,
-                            notes = notes.trim().ifBlank { null }, location = location
-                        )
-                    }
-                }
-                onSaved(id)
-            } catch (e: IllegalArgumentException) { error = e.message ?: "Please check the details" } catch (e: Exception) { error = e.message ?: "Unable to save. Please try again." } finally { busy = false }
-        }
-    }
-
-    val title = when (entryType) { EntryType.TRIP -> "Record a trip"; EntryType.FUEL -> "Record fuel"; EntryType.EXPENSE -> "Record an expense" }
-    val subtitle = when (entryType) { EntryType.TRIP -> "Add the fare and trip details"; EntryType.FUEL -> "Capture today’s fuel filling"; EntryType.EXPENSE -> "Keep every cab expense accounted for" }
-
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        CabHeader(title, subtitle, onBack = onCancel)
-        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(shape = RoundedCornerShape(14.dp), color = CabPurpleSoft) { Text("Session active • entry is saved on this phone first and synced automatically", modifier = Modifier.fillMaxWidth().padding(12.dp), color = CabPurple, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold) }
-            Surface(shape = RoundedCornerShape(14.dp), color = if (gps?.isUsable() == true) CabGreenSoft else CabAmberSoft) {
-                Text(gpsStatus, modifier = Modifier.fillMaxWidth().padding(13.dp), color = if (gps?.isUsable() == true) CabGreen else CabAmber, fontWeight = FontWeight.SemiBold)
-            }
-            CabCard {
-                when (entryType) {
-                    EntryType.TRIP -> {
-                        CabSectionLabel("TRIP DETAILS")
-                        OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Start odometer (km)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-                        OutlinedTextField(endOdo, { endOdo = it }, label = { Text("End odometer (km)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-                        OutlinedTextField(fare, { fare = it }, label = { Text("Gross fare (₹)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-                        OutlinedTextField(additionalCharges, { additionalCharges = it }, label = { Text("Additional charges (₹)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-                        Box { OutlinedButton({ platformMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Platform: ${selectedPlatform?.name ?: "Not selected (optional)"}") }; DropdownMenu(platformMenu, { platformMenu = false }) { platforms.forEach { p -> DropdownMenuItem({ Text(p.name) }, { selectedPlatform = p; platformMenu = false }) } } }
-                        Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem({ Text(p) }, { payment = p; paymentMenu = false }) } } }
-                        OutlinedTextField(pickup, { pickup = it }, label = { Text("Pickup (optional)") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp))
-                        OutlinedTextField(dropoff, { dropoff = it }, label = { Text("Drop (optional)") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp))
-                        Box { OutlinedButton({ statusMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Trip status: ${status.replace('_', ' ')}") }; DropdownMenu(statusMenu, { statusMenu = false }) { tripStatuses.forEach { s -> DropdownMenuItem({ Text(s.replace('_', ' ')) }, { status = s; statusMenu = false }) } } }
-                    }
-                    EntryType.FUEL -> {
-                        CabSectionLabel("FUEL DETAILS")
-                        OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Odometer (km)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-                        OutlinedTextField(fuelType, { fuelType = it }, label = { Text("Fuel type") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { OutlinedTextField(quantity, { quantity = it }, label = { Text("Quantity") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(14.dp)); OutlinedTextField(unit, { unit = it }, label = { Text("Unit") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(14.dp)) }
-                        OutlinedTextField(rate, { rate = it }, label = { Text("Rate (₹)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-                        Surface(shape = RoundedCornerShape(14.dp), color = CabAmberSoft) { Text("Total fuel cost  ${calculatedFuelAmount?.let { "₹%.2f".format(it) } ?: "—"}", modifier = Modifier.fillMaxWidth().padding(14.dp), color = CabAmber, fontWeight = FontWeight.Bold) }
-                        Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem({ Text(p) }, { payment = p; paymentMenu = false }) } } }
-                    }
-                    EntryType.EXPENSE -> {
-                        CabSectionLabel("EXPENSE DETAILS")
-                        OutlinedTextField(amount, { amount = it }, label = { Text("Amount (₹)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-                        Box { OutlinedButton({ categoryMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Category: ${category?.name ?: "Uncategorized"}") }; DropdownMenu(categoryMenu, { categoryMenu = false }) { DropdownMenuItem({ Text("Uncategorized") }, { category = null; categoryMenu = false }); categories.forEach { c -> DropdownMenuItem({ Text(c.name) }, { category = c; categoryMenu = false }) } } }
-                        Box { OutlinedButton({ paymentMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Payment: $payment") }; DropdownMenu(paymentMenu, { paymentMenu = false }) { paymentMethods.forEach { p -> DropdownMenuItem({ Text(p) }, { payment = p; paymentMenu = false }) } } }
-                        OutlinedTextField(startOdo, { startOdo = it }, label = { Text("Odometer (optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-                    }
-                }
-                OutlinedTextField(notes, { notes = it }, label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(14.dp))
-            }
-            if (error.isNotBlank()) Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.errorContainer) { Text(error, modifier = Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer) }
-            CabPrimaryButton(if (busy) "Saving…" else "Save entry", enabled = !busy && gps?.isUsable() == true, onClick = { save() })
-            Text("GPS accuracy must be ≤50 m and the fix must be fresh. You don’t need internet to save; sync happens automatically when possible.", modifier = Modifier.fillMaxWidth(), color = CabGray, style = MaterialTheme.typography.bodySmall)
-            CabSecondaryButton("Cancel", enabled = !busy, onClick = onCancel)
-        }
-    }
-}
+private object JsonUtil{fun startedAt(payload:String):String?=Regex("\\\"startedAt\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"").find(payload)?.groupValues?.get(1)}
