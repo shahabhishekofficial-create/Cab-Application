@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from './supabase.js';
+import { getRoadRoute } from '../domain/route-service.js';
 
 export async function createTrip(input: Record<string, unknown>) {
   const { data, error } = await getSupabaseAdmin().rpc('create_trip', {
@@ -16,6 +17,18 @@ export async function createTrip(input: Record<string, unknown>) {
 }
 
 export async function endTrip(input: Record<string, unknown>) {
+  let route: Awaited<ReturnType<typeof getRoadRoute>> = null;
+  const { data: trip } = await getSupabaseAdmin().from('trips').select('latitude,longitude').eq('client_transaction_id', input.tripClientTransactionId).maybeSingle();
+  if (trip && input.latitude != null && input.longitude != null) {
+    try {
+      route = await getRoadRoute(
+        { latitude: Number(trip.latitude), longitude: Number(trip.longitude) },
+        { latitude: Number(input.latitude), longitude: Number(input.longitude) },
+      );
+    } catch (error) {
+      console.warn('Trip road route unavailable:', error instanceof Error ? error.message : error);
+    }
+  }
   const { data, error } = await getSupabaseAdmin().rpc('end_trip', {
     p_client_transaction_id: input.tripClientTransactionId,
     p_session_id: input.sessionId, p_driver_id: input.driverId, p_vehicle_id: input.vehicleId,
@@ -25,6 +38,10 @@ export async function endTrip(input: Record<string, unknown>) {
     p_gps_accuracy_m: input.gpsAccuracyM, p_gps_at: input.gpsAt,
     p_pickup: input.pickup ?? null, p_dropoff: input.dropoff ?? null,
     p_platform_id: input.platformId ?? null, p_notes: input.notes ?? null,
+    p_route_distance_m: route?.distanceMeters ?? null,
+    p_route_duration_seconds: route?.durationSeconds ?? null,
+    p_route_polyline: route?.polyline ?? null,
+    p_route_provider: route?.provider ?? null,
   });
   if (error) throw error;
   return data;
