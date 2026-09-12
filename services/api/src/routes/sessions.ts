@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { closeSession as persistCloseSession, startSession as persistStartSession } from '../db/session-repository.js';
 import { closeSessionSchema, startSessionSchema } from '../domain/schemas.js';
 import { authErrorResponse, requireDriver } from '../auth/driver-auth.js';
