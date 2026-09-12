@@ -26,6 +26,7 @@ class SessionCloseLocalRepository(private val context: Context) {
         require(session.driverId == driverId) { "SESSION_DRIVER_MISMATCH" }
         require(session.vehicleId == vehicleId) { "SESSION_VEHICLE_MISMATCH" }
         require(session.status == "OPEN") { "SESSION_NOT_OPEN" }
+        require(db.localTripDao().active(sessionId) == null) { "ACTIVE_TRIP_MUST_BE_ENDED" }
         require(closeOdometer >= session.startOdometer) { "INVALID_CLOSE_ODOMETER" }
         OdometerGuard.requireAtLeast(db, sessionId, closeOdometer, "Closing odometer")
 
