@@ -3,9 +3,7 @@ package com.caboperations.driver.data
 import android.content.Context
 import android.os.SystemClock
 import androidx.work.BackoffPolicy
-import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
@@ -26,12 +24,15 @@ object SyncScheduler {
     private val immediateRunning = AtomicBoolean(false)
     private val nextImmediateAllowedAt = AtomicLong(0L)
 
+    /**
+     * WorkManager is deliberately unconstrained here. ApiClient has bounded connect/read
+     * timeouts and SyncWorker returns retry on transient/network failures, so requiring a
+     * WorkManager network constraint can leave an otherwise healthy queue permanently ENQUEUED.
+     */
     fun enqueue(context: Context, apiBaseUrl: String = BuildConfig.API_BASE_URL) {
         val appContext = context.applicationContext
         runCatching {
-            val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
-                .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setInputData(workDataOf(SyncWorker.KEY_BASE_URL to apiBaseUrl))
@@ -47,6 +48,15 @@ object SyncScheduler {
                 val success = runCatching { SyncEngine.run(appContext, apiBaseUrl) }.getOrDefault(false)
                 if (!success) nextImmediateAllowedAt.set(SystemClock.elapsedRealtime() + FAILED_IMMEDIATE_COOLDOWN_MS)
             } finally { immediateRunning.set(false) }
+        }
+    }
+
+    /** Replaces a stale queued WorkManager instance once at app startup/manual recovery. */
+    fun resetAndEnqueue(context: Context, apiBaseUrl: String = BuildConfig.API_BASE_URL) {
+        val appContext = context.applicationContext
+        immediateScope.launch {
+            runCatching { WorkManager.getInstance(appContext).cancelUniqueWork(UNIQUE_WORK).get() }
+            enqueue(appContext, apiBaseUrl)
         }
     }
 }
