@@ -55,7 +55,7 @@ object SyncScheduler {
     fun resetAndEnqueue(context: Context, apiBaseUrl: String = BuildConfig.API_BASE_URL) {
         val appContext = context.applicationContext
         immediateScope.launch {
-            runCatching { WorkManager.getInstance(appContext).cancelUniqueWork(UNIQUE_WORK).get() }
+            runCatching { WorkManager.getInstance(appContext).cancelUniqueWork(UNIQUE_WORK) }
             enqueue(appContext, apiBaseUrl)
         }
     }
