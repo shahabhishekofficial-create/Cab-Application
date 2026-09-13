@@ -26,43 +26,27 @@ object SyncScheduler {
     private val immediateRunning = AtomicBoolean(false)
     private val nextImmediateAllowedAt = AtomicLong(0L)
 
-    /**
-     * Sync is best-effort from the UI lifecycle. A scheduler/database/configuration
-     * failure must never terminate the driver application process.
-     */
     fun enqueue(context: Context, apiBaseUrl: String = BuildConfig.API_BASE_URL) {
         val appContext = context.applicationContext
         runCatching {
-            val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build()
+            val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-                .setInitialDelay(15, TimeUnit.SECONDS)
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setInputData(workDataOf(SyncWorker.KEY_BASE_URL to apiBaseUrl))
+                .addTag("cab-sync")
                 .build()
-            WorkManager.getInstance(appContext).enqueueUniqueWork(
-                UNIQUE_WORK,
-                ExistingWorkPolicy.KEEP,
-                request
-            )
+            WorkManager.getInstance(appContext).enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.KEEP, request)
         }
 
         val now = SystemClock.elapsedRealtime()
-        if (now < nextImmediateAllowedAt.get()) return
-        if (!immediateRunning.compareAndSet(false, true)) return
-
+        if (now < nextImmediateAllowedAt.get() || !immediateRunning.compareAndSet(false, true)) return
         immediateScope.launch {
             try {
                 val success = runCatching { SyncEngine.run(appContext, apiBaseUrl) }.getOrDefault(false)
-                if (!success) {
-                    nextImmediateAllowedAt.set(SystemClock.elapsedRealtime() + FAILED_IMMEDIATE_COOLDOWN_MS)
-                }
-            } finally {
-                immediateRunning.set(false)
-            }
+                if (!success) nextImmediateAllowedAt.set(SystemClock.elapsedRealtime() + FAILED_IMMEDIATE_COOLDOWN_MS)
+            } finally { immediateRunning.set(false) }
         }
     }
 }
