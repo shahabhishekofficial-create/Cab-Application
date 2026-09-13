@@ -10,32 +10,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-val CabPageBackground = Color(0xFFF6F7F5)
-val CabPurple = Color(0xFF5B3FA8)
-val CabPurpleSoft = Color(0xFFEDE8FA)
-val CabGreen = Color(0xFF247A4A)
-val CabGreenSoft = Color(0xFFE5F4EA)
-val CabAmber = Color(0xFF9A6200)
-val CabAmberSoft = Color(0xFFFFF1D6)
-val CabInk = Color(0xFF202124)
-val CabGray = Color(0xFF6B6E73)
+val CabPageBackground = Color(0xFF0B0B0F)
+val CabPurple = Color(0xFFB7FF3C)
+val CabPurpleSoft = Color(0xFF202A16)
+val CabGreen = Color(0xFFB7FF3C)
+val CabGreenSoft = Color(0xFF202A16)
+val CabAmber = Color(0xFFFFC857)
+val CabAmberSoft = Color(0xFF302812)
+val CabInk = Color(0xFFF5F5F7)
+val CabGray = Color(0xFF9A9AA3)
 
 @Composable
 fun CabScreen(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Top,
-    ) { content() }
+    Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.Top) { content() }
 }
 
 @Composable
 fun CabHeader(title: String, subtitle: String? = null, onBack: (() -> Unit)? = null) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) {
-            TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Back") }
+            TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Back", color = CabAccent) }
             Spacer(Modifier.width(6.dp))
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -46,29 +40,24 @@ fun CabHeader(title: String, subtitle: String? = null, onBack: (() -> Unit)? = n
 }
 
 @Composable
-fun CabCard(modifier: Modifier = Modifier, color: Color = Color.White, content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = color),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { content() } }
+fun CabCard(modifier: Modifier = Modifier, color: Color = Color(0xFF17171D), content: @Composable ColumnScope.() -> Unit) {
+    Card(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = color), elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { content() }
+    }
 }
 
 @Composable
-fun CabSectionLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = CabGray, fontWeight = FontWeight.Bold)
-}
+fun CabSectionLabel(text: String) { Text(text, style = MaterialTheme.typography.labelMedium, color = CabGray, fontWeight = FontWeight.Bold) }
 
 @Composable
 fun CabStep(number: String, title: String, done: Boolean, content: @Composable ColumnScope.() -> Unit) {
-    CabCard(color = if (done) CabGreenSoft else Color.White) {
+    CabCard(color = if (done) CabGreenSoft else Color(0xFF17171D)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(shape = RoundedCornerShape(50), color = if (done) CabGreen else CabPurpleSoft) {
-                Text(if (done) "✓" else number, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp), color = if (done) CabGreen else CabPurple, fontWeight = FontWeight.Bold)
+                Text(if (done) "✓" else number, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp), color = Color.Black, fontWeight = FontWeight.Bold)
             }
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CabInk)
                 Text(if (done) "Completed" else "Required", style = MaterialTheme.typography.bodySmall, color = if (done) CabGreen else CabGray)
             }
         }
@@ -78,14 +67,17 @@ fun CabStep(number: String, title: String, done: Boolean, content: @Composable C
 
 @Composable
 fun CabPrimaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) {
+    Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CabAccent, contentColor = Color.Black)) {
         Text(text, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 fun CabSecondaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp)) {
+    OutlinedButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = CabText)) {
         Text(text, fontWeight = FontWeight.SemiBold)
     }
 }
+
+private val CabAccent = Color(0xFFB7FF3C)
+private val CabText = Color(0xFFF5F5F7)
