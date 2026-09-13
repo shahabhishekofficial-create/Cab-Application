@@ -30,10 +30,7 @@ fun CabScreen(modifier: Modifier = Modifier, content: @Composable ColumnScope.()
 @Composable
 fun CabHeader(title: String, subtitle: String? = null, onBack: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (onBack != null) {
-            TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Back", color = CabAccent) }
-            Spacer(Modifier.width(6.dp))
-        }
+        if (onBack != null) { TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Back", color = CabAccent) }; Spacer(Modifier.width(6.dp)) }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = CabInk)
             if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = CabGray)
@@ -42,7 +39,7 @@ fun CabHeader(title: String, subtitle: String? = null, onBack: (() -> Unit)? = n
 }
 
 @Composable
-fun CabCard(modifier: Modifier = Modifier, color: Color = Color(0xFF17171D), content: @Composable ColumnScope.() -> Unit) {
+fun CabCard(modifier: Modifier = Modifier, color: Color = CabSurface, content: @Composable ColumnScope.() -> Unit) {
     Card(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = color), elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { content() }
     }
@@ -53,10 +50,10 @@ fun CabSectionLabel(text: String) { Text(text, style = MaterialTheme.typography.
 
 @Composable
 fun CabStep(number: String, title: String, done: Boolean, content: @Composable ColumnScope.() -> Unit) {
-    CabCard(color = if (done) CabGreenSoft else Color(0xFF17171D)) {
+    CabCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(shape = RoundedCornerShape(50), color = if (done) CabGreen else CabPurpleSoft) {
-                Text(if (done) "✓" else number, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp), color = Color.Black, fontWeight = FontWeight.Bold)
+                Text(if (done) "✓" else number, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp), color = if (done) Color.Black else CabAccent, fontWeight = FontWeight.Bold)
             }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CabInk)
@@ -69,14 +66,12 @@ fun CabStep(number: String, title: String, done: Boolean, content: @Composable C
 
 @Composable
 fun CabPrimaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CabAccent, contentColor = Color.Black)) {
-        Text(text, fontWeight = FontWeight.Bold)
-    }
+    Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CabAccent, contentColor = Color.Black)) { Text(text, fontWeight = FontWeight.Bold) }
 }
 
 @Composable
 fun CabSecondaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = CabText)) {
-        Text(text, fontWeight = FontWeight.SemiBold)
-    }
+    OutlinedButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = CabText)) { Text(text, fontWeight = FontWeight.SemiBold) }
 }
+
+private val CabSurface = Color(0xFF17171D)
