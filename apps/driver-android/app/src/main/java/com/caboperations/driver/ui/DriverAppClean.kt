@@ -37,12 +37,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 
-private val CabDark = Color(0xFF0B0B0F)
-private val CabSurface = Color(0xFF17171D)
-private val CabAccent = Color(0xFFB7FF3C)
-private val CabText = Color(0xFFF5F5F7)
-private val CabMuted = Color(0xFF9A9AA3)
-
 private fun permissionsGranted(context: android.content.Context): Boolean = ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED && (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
 
 @Composable
@@ -58,7 +52,7 @@ fun DriverAppClean(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
     BackHandler(enabled = screen == "HOME") { val now = SystemClock.elapsedRealtime(); if (now - lastBack < 2000L) (context as? android.app.Activity)?.finish() else { lastBack = now; Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show() } }
     MaterialTheme(colorScheme = darkColorScheme(primary = CabAccent, secondary = CabAccent, background = CabDark, surface = CabSurface, onSurface = CabText, onBackground = CabText, onPrimary = Color.Black)) {
         when (screen) {
-            "LOADING" -> Box(Modifier.fillMaxSize().background(CabDark), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = CabAccent) }
+            "LOADING" -> Box(Modifier.fillMaxSize().background(CabPageBackground), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = CabAccent) }
             "LOGIN" -> LoginScreen(auth) { scope.launch { if (loadDriver()) screen = if (permissionsGranted(context)) "HOME" else "PERMISSIONS" } }
             "PERMISSIONS" -> PermissionGateScreen { screen = "HOME" }
             "START" -> SessionStartScreen(identity.driverId!!, identity.vehicleId!!, onStart = { odo: Double, gps: LocationSnapshot, photo: String, ocr: OdometerOcrResult, decision: OdometerVerifier.Decision -> scope.launch { val id = local.queueStartSession(identity.driverId!!, identity.vehicleId!!, identity.deviceId, odo, gps.latitude, gps.longitude, gps.accuracyMeters, Instant.ofEpochMilli(gps.capturedAtEpochMs).toString(), photo, ocr, decision); session = state.open(id, identity.driverId!!, identity.vehicleId!!, odo); SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); refreshPending(); screen = "HOME" } }, onCancel = { screen = "HOME" })
@@ -107,7 +101,7 @@ private fun SyncStatusScreen(onBack: () -> Unit, onSync: () -> Unit) {
     }
 }
 
-@Composable private fun SimpleInfoScreen(title: String, text: String, onBack: () -> Unit) { Column(Modifier.fillMaxSize().background(CabDark).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { CabHeader(title, onBack = onBack); CabCard { Text(text, color = CabGray); CabPrimaryButton("BACK") { onBack() } } } }
+@Composable private fun SimpleInfoScreen(title: String, text: String, onBack: () -> Unit) { Column(Modifier.fillMaxSize().background(CabDark).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { CabHeader(title, onBack = onBack); CabCard { Text(text, color = CabGray); CabPrimaryButton("BACK") { onBack() } } }
 @Composable private fun Stat(value: String, label: String, modifier: Modifier = Modifier) { Column(modifier) { Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(label, color = CabMuted, style = MaterialTheme.typography.labelSmall) } }
 @Composable private fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier) { Button(onClick = onClick, modifier = modifier.height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CabSurface, contentColor = CabText)) { Text(label, fontWeight = FontWeight.Bold) } }
 @Composable private fun CabDarkCard(content: @Composable ColumnScope.() -> Unit) { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = CabSurface)) { Column(Modifier.padding(20.dp), content = content) } }
