@@ -109,6 +109,6 @@ private fun SimpleInfoScreen(title: String, text: String, onBack: () -> Unit) {
     }
 }
 
-@Composable private fun Stat(value: String, label: String, modifier: Modifier = Modifier) { Column(modifier) { Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(label, color = CabMuted, style = MaterialTheme.typography.labelSmall) }
+@Composable private fun Stat(value: String, label: String, modifier: Modifier = Modifier) { Column(modifier) { Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(label, color = CabMuted, style = MaterialTheme.typography.labelSmall) } }
 @Composable private fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier) { Button(onClick = onClick, modifier = modifier.height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CabSurface, contentColor = CabText)) { Text(label, fontWeight = FontWeight.Bold) } }
 @Composable private fun CabDarkCard(content: @Composable ColumnScope.() -> Unit) { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = CabSurface)) { Column(Modifier.padding(20.dp), content = content) } }
