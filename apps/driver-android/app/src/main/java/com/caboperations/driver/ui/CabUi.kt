@@ -21,6 +21,8 @@ val CabInk = Color(0xFFF5F5F7)
 val CabGray = Color(0xFF9A9AA3)
 val CabText = Color(0xFFF5F5F7)
 val CabAccent = Color(0xFFB7FF3C)
+val CabMuted = Color(0xFF9A9AA3)
+val CabSurface = Color(0xFF17171D)
 
 @Composable
 fun CabScreen(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
@@ -73,5 +75,3 @@ fun CabPrimaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit)
 fun CabSecondaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     OutlinedButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = CabText)) { Text(text, fontWeight = FontWeight.SemiBold) }
 }
-
-private val CabSurface = Color(0xFF17171D)
