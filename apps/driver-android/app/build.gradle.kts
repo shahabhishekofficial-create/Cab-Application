@@ -7,9 +7,7 @@ plugins {
     id("androidx.room")
 }
 
-room {
-    schemaDirectory("$projectDir/schemas")
-}
+room { schemaDirectory("$projectDir/schemas") }
 
 android {
     namespace = "com.caboperations.driver"
@@ -22,17 +20,17 @@ android {
         versionName = "1.3"
         buildConfigField("String", "API_BASE_URL", "\"${project.findProperty("API_BASE_URL") ?: "https://cab-application-z4ow.onrender.com"}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${project.findProperty("SUPABASE_URL") ?: ""}\"")
-        val publishableKey = project.findProperty("SUPABASE_PUBLISHABLE_KEY")
-            ?: project.findProperty("SUPABASE_ANON_KEY")
-            ?: ""
+        val publishableKey = project.findProperty("SUPABASE_PUBLISHABLE_KEY") ?: project.findProperty("SUPABASE_ANON_KEY") ?: ""
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"$publishableKey\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$publishableKey\"")
+        buildConfigField("boolean", "ENABLE_TEST_SYNC_DEPENDENCY_BYPASS", "false")
+    }
+    buildTypes {
+        getByName("debug") { buildConfigField("boolean", "ENABLE_TEST_SYNC_DEPENDENCY_BYPASS", "true") }
+        getByName("release") { buildConfigField("boolean", "ENABLE_TEST_SYNC_DEPENDENCY_BYPASS", "false") }
     }
     buildFeatures { compose = true; buildConfig = true }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
 }
 
