@@ -2,6 +2,7 @@ package com.caboperations.driver.ui
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,7 +39,7 @@ fun TransactionEntryScreenClean(type:String,sessionId:String,driverId:String,veh
     LaunchedEffect(Unit){capture();if(isTrip){activeTrip=withContext(Dispatchers.IO){db.localTripDao().active(sessionId)};startedAt=activeTrip?.let{withContext(Dispatchers.IO){db.pendingTransactionDao().find(it.clientTransactionId)}?.let{p->Regex("\\\"startedAt\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"").find(p.payloadJson)?.groupValues?.get(1)}}}}
     LaunchedEffect(type){capture()}
     val canSave=location?.isUsable()==true&&!busy
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+    Column(Modifier.fillMaxSize().background(CabPageBackground).verticalScroll(rememberScrollState()).padding(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         CabHeader(when{isTrip&&activeTrip!=null->"End trip";isTrip->"Start trip";isFuel->"Record fuel";else->"Add expense"},when{isTrip->"Enter only the details needed for this trip.";isFuel->"Record the filling details.";else->"Record the expense details."},onBack=onCancel)
         Column(Modifier.padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
             CabCard(color=CabPurpleSoft){Text("Saved automatically",color=CabPurple,fontWeight=FontWeight.Bold);Text("Your entry is saved on the phone first and sent to the server automatically.",color=CabGray)}
@@ -49,7 +50,6 @@ fun TransactionEntryScreenClean(type:String,sessionId:String,driverId:String,veh
                     isFuel->{CabSectionLabel("FUEL");OutlinedTextField(odo,{odo=it},label={Text("Odometer (km)")},modifier=Modifier.fillMaxWidth(),singleLine=true);OutlinedTextField(fuelType,{fuelType=it},label={Text("Fuel type")},modifier=Modifier.fillMaxWidth(),singleLine=true);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){OutlinedTextField(qty,{qty=it},label={Text("Quantity")},modifier=Modifier.weight(1f),singleLine=true);OutlinedTextField(unit,{unit=it},label={Text("Unit")},modifier=Modifier.weight(1f),singleLine=true)};OutlinedTextField(rate,{rate=it},label={Text("Rate (₹)")},modifier=Modifier.fillMaxWidth(),singleLine=true);Text("Total: ${total?.let{"₹%.2f".format(it)}?:"—"}",fontWeight=FontWeight.Bold)}
                     else->{CabSectionLabel("EXPENSE");OutlinedTextField(amount,{amount=it},label={Text("Amount (₹)")},modifier=Modifier.fillMaxWidth(),singleLine=true);OutlinedTextField(odo,{odo=it},label={Text("Odometer (optional)")},modifier=Modifier.fillMaxWidth(),singleLine=true)}
                 }
-                if(!isFuel&& !isTrip){}
                 OutlinedTextField(notes,{notes=it},label={Text("Notes (optional)")},modifier=Modifier.fillMaxWidth(),minLines=2)
             }
             if(error.isNotBlank())Text(error,color=MaterialTheme.colorScheme.error)
