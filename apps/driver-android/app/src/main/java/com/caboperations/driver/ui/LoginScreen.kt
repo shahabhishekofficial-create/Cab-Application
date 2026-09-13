@@ -16,7 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.caboperations.driver.BuildConfig
@@ -33,7 +33,6 @@ fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
     val context = LocalContext.current; var email by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }; val scope = rememberCoroutineScope()
     val fieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = CabText, unfocusedTextColor = CabText, disabledTextColor = CabGray, focusedLabelColor = CabAccent, unfocusedLabelColor = CabGray, focusedBorderColor = CabAccent, unfocusedBorderColor = Color(0xFF4A4A54), cursorColor = CabAccent, focusedPlaceholderColor = CabGray, unfocusedPlaceholderColor = CabGray)
     fun friendlyError(t: Throwable): String { val m = t.message.orEmpty().lowercase(); return when { t is SocketTimeoutException || m.contains("timeout") -> "Sign-in timed out. Check your internet connection and try again."; t is UnknownHostException || m.contains("unable to resolve") || m.contains("network") -> "Network error. Check your internet connection and try again."; m.contains("invalid login") || m.contains("invalid credentials") || m.contains("password") -> "Email or password is incorrect."; m.contains("not found") -> "Account not found. Check the email address."; else -> t.message ?: "Sign-in failed. Please try again." } }
-
     Box(Modifier.fillMaxSize().background(CabPageBackground).imePadding()) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Spacer(Modifier.height(20.dp)); Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Surface(shape = RoundedCornerShape(14.dp), color = CabAccent) { Text("CAB", Modifier.padding(horizontal = 14.dp, vertical = 9.dp), color = Color.Black, fontWeight = FontWeight.ExtraBold) }; Text("Cab Driver", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = CabText) }
@@ -54,7 +53,7 @@ fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
                     }
                 }
             }
-            Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF202A16)) { Text("Works offline • your saved entries stay on your phone until they sync.", Modifier.padding(14.dp), color = CabAccent, style = MaterialTheme.typography.bodySmall) }
+            Surface(shape = RoundedCornerShape(16.dp), color = CabGreenSoft) { Text("Works offline • your saved entries stay on your phone until they sync.", Modifier.padding(14.dp), color = CabAccent, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
