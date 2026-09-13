@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,7 +41,7 @@ fun SessionCloseScreenClean(sessionId:String,driverId:String,vehicleId:String,st
     val permissions=rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){captureGps()}
     LaunchedEffect(Unit){val c=ContextCompat.checkSelfPermission(context,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED;val l=ContextCompat.checkSelfPermission(context,Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED||ContextCompat.checkSelfPermission(context,Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED;if(!c||!l)permissions.launch(arrayOf(Manifest.permission.CAMERA,Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION))else captureGps()}
     val close=odo.toDoubleOrNull(); val count=trips.toIntOrNull(); val total=income.toDoubleOrNull(); val ready=!busy&&close!=null&&close>=startOdometer&&count!=null&&count>=0&&total!=null&&total>=0&&photo!=null&&ocr!=null&&gps?.isUsable()==true
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+    Column(Modifier.fillMaxSize().background(CabPageBackground).verticalScroll(rememberScrollState()).padding(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         CabHeader("Close session","Finish today’s work",onBack=onCancel)
         Column(Modifier.padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
             CabCard(color=CabPurpleSoft){Text("Finish your day",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text("Take the final odometer photo and enter the day’s totals.",color=CabGray);Text("Started at ${startOdometer.toInt()} km",color=CabPurple,fontWeight=FontWeight.SemiBold)}
