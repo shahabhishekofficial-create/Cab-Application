@@ -24,7 +24,6 @@ object SyncEngine {
         val pending = dao.pending().sortedWith(compareBy { priority(it.type) }).take(SyncPolicy.MAX_BATCH_SIZE)
         Log.i(TAG, "run start: pending=${pending.size}, debugBypass=${BuildConfig.ENABLE_TEST_SYNC_DEPENDENCY_BYPASS}")
         if (pending.isEmpty()) return@withLock true
-
         val auth = AuthRepository(context)
         val currentSession = auth.session()
         val tokenResult = auth.refreshIfNeeded()
@@ -39,8 +38,6 @@ object SyncEngine {
             if (json == null) { dao.markFailed(item.clientTransactionId, "INVALID_LOCAL_PAYLOAD"); Log.e(TAG, "invalid payload id=${item.clientTransactionId}"); continue }
             val driverId = json["driverId"]?.jsonPrimitive?.content
             val vehicleId = json["vehicleId"]?.jsonPrimitive?.content
-            var result: ApiClient.Result
-
             fun path(): String? = when (item.type) {
                 TYPE_SESSION_START -> "/v1/sessions"
                 TYPE_SESSION_CLOSE -> json["sessionId"]?.jsonPrimitive?.content?.let { "/v1/sessions/$it/close" }
@@ -69,42 +66,41 @@ object SyncEngine {
                 TYPE_SESSION_START, TYPE_SESSION_CLOSE -> buildJsonObject { json.forEach { (key, value) -> if (key != "startOdometerFileId" && key != "closeOdometerFileId") put(key, value) } }.toString()
                 else -> item.payloadJson
             }
-
-            result = if (item.type == TYPE_FILE_UPLOAD) {
+            val result: ApiClient.Result? = if (item.type == TYPE_FILE_UPLOAD) {
                 val filePath = json["localFilePath"]?.jsonPrimitive?.content; val fileId = json["fileId"]?.jsonPrimitive?.content; val objectPath = json["objectPath"]?.jsonPrimitive?.content
-                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) { dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD"); continue }
-                if (!File(filePath).exists()) { dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING"); continue }
-                val uploaded = upload() ?: ApiClient.Result(false, true, "FILE_UPLOAD_FAILED")
-                if (uploaded.success) attachOdometerFile() else uploaded
+                if (filePath.isNullOrBlank() || fileId.isNullOrBlank() || objectPath.isNullOrBlank()) {
+                    dao.markFailed(item.clientTransactionId, "INVALID_FILE_UPLOAD_PAYLOAD"); null
+                } else if (!File(filePath).exists()) {
+                    dao.markFailed(item.clientTransactionId, "LOCAL_FILE_MISSING"); null
+                } else {
+                    val uploaded = upload() ?: ApiClient.Result(false, true, "FILE_UPLOAD_FAILED")
+                    if (uploaded.success) attachOdometerFile() else uploaded
+                }
             } else {
-                val p = path() ?: run { dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE"); continue }
-                api.post(p, businessBody(), driverId, vehicleId)
+                val p = path()
+                if (p == null) { dao.markFailed(item.clientTransactionId, "UNSUPPORTED_TRANSACTION_TYPE"); null }
+                else api.post(p, businessBody(), driverId, vehicleId)
             }
-
+            if (result == null) continue
             if (result.success) { dao.markSynced(item.clientTransactionId); Log.i(TAG, "synced type=${item.type} id=${item.clientTransactionId}"); continue }
             Log.w(TAG, "failed type=${item.type} id=${item.clientTransactionId} retryable=${result.retryable} authExpired=${result.authExpired} error=${result.error}")
-
             if (result.authExpired) {
                 val refreshed = auth.refreshIfNeeded(force = true); val newToken = refreshed.getOrNull()?.accessToken
                 if (newToken == null) { dao.markFailed(item.clientTransactionId, "AUTH_REFRESH_FAILED"); retry = dao.find(item.clientTransactionId)?.attempts?.let { it < SyncPolicy.MAX_RETRY_ATTEMPTS } ?: false; break }
                 token = newToken; api = ApiClient(baseUrl, token)
                 val p = path(); val retryBody = businessBody()
-                val retryResult = if (item.type == TYPE_FILE_UPLOAD) { val uploaded = upload(); if (uploaded?.success == true) attachOdometerFile() else uploaded } else p?.let { api.post(it, retryBody, driverId, vehicleId) }
+                val retryResult = if (item.type == TYPE_FILE_UPLOAD) { val uploaded = upload(); if (uploaded?.success == true) attachOdometerFile() else uploaded } else if (p != null) api.post(p, retryBody, driverId, vehicleId) else null
                 if (retryResult?.success == true) { dao.markSynced(item.clientTransactionId); Log.i(TAG, "synced after auth refresh id=${item.clientTransactionId}"); continue }
                 val error = retryResult?.error ?: "AUTH_REFRESH_FAILED"; dao.markFailed(item.clientTransactionId, error); retry = dao.find(item.clientTransactionId)?.attempts?.let { it < SyncPolicy.MAX_RETRY_ATTEMPTS } ?: false
             } else if (result.retryable) {
                 dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_RETRYABLE_FAILURE"); retry = dao.find(item.clientTransactionId)?.attempts?.let { it < SyncPolicy.MAX_RETRY_ATTEMPTS } ?: false
             } else dao.markFailed(item.clientTransactionId, result.error ?: "SYNC_FAILED")
-
             if (item.type in setOf(TYPE_SESSION_START, TYPE_TRIP_START, TYPE_TRIP_END)) break
-            // In debug builds, an incomplete SESSION_CLOSE never blocks later test records.
-            // Release builds retain strict dependency semantics.
             if (item.type == TYPE_SESSION_CLOSE && !BuildConfig.ENABLE_TEST_SYNC_DEPENDENCY_BYPASS) break
         }
         Log.i(TAG, "run complete retry=$retry")
         !retry
     }
-
     private fun priority(type: String) = when (type) { TYPE_SESSION_START -> 0; TYPE_TRIP_START -> 10; TYPE_TRIP_END -> 11; TYPE_TRIP, TYPE_FUEL, TYPE_EXPENSE -> 12; TYPE_SESSION_CLOSE -> 20; TYPE_FILE_UPLOAD -> 30; else -> 40 }
     const val TYPE_FILE_UPLOAD = "FILE_UPLOAD"
     const val TYPE_SESSION_START = "SESSION_START"
