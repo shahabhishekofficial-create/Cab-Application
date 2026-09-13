@@ -121,3 +121,18 @@ The artifact ZIP was downloaded into the ChatGPT runtime and the actual APK was 
 - Physical Android interaction is the only acceptable user dependency when genuinely required; do not claim E2E device verification without observable device evidence.
 - Any new task must begin by reading this file and must update it at task completion.
 - Deliverables such as APKs must be immediately usable. Prefer a direct actual file attachment/sandbox link; do not give an artifact page as a substitute when a direct file can be produced.
+
+## Login Screen Punch List — 2026-09-13
+Implemented in commits `509d747d10ab8c413b8baeba0909cd8e994c1dec` and `6bf43b3255bbead729f0552d765b2997cd9a47be`:
+- Shared driver UI tokens changed to dark-first: #0B0B0F background, #17171D surfaces, neon #B7FF3C accent, light text/muted gray.
+- Login logo/header combined into a CAB + Cab Driver lockup.
+- Login typography now uses Material 3 default sans-serif with explicit color application; no decorative serif styling remains in the screen code.
+- Email/password fields now have explicit dark-theme text, placeholder, label, cursor, focus-border and rest-border colors, with accent only on focus.
+- Placeholder is now clearly generic (`name@example.com`) rather than a realistic account-like value.
+- App version is dynamic via `BuildConfig.VERSION_NAME`, not hardcoded.
+- Offline banner uses the same neon accent system.
+- Sign-in errors are visibly rendered; blank credentials are handled before network submission.
+- Fixed the login success path so `busy` is cleared before invoking post-login driver loading, preventing an indefinite “Signing in…” state when authenticated but driver context loading fails.
+- Google OAuth button was already wired to Supabase `/auth/v1/authorize` with `provider=google`, state generation/validation, custom `cabdriver://auth-callback`, and Android manifest callback handling. Provider-side Google credentials/SHA/redirect configuration could not be directly inspected through the available Supabase management surface; the app-side OAuth wiring is verified from actual source and manifest. No speculative provider configuration was changed.
+- Live DB schema confirms `app_users.id` is the auth-user UUID primary key and `drivers.user_id` is unique, preventing duplicate driver rows for one authenticated user at the database level. `app_users` has no email column, so email-level dedupe belongs to Supabase Auth/user identity rather than adding a duplicate application-user email field.
+- Login changes are awaiting CI verification; no APK is considered ready until CI is green.
