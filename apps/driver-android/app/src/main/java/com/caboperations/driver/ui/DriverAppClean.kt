@@ -19,6 +19,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.caboperations.driver.BuildConfig
 import com.caboperations.driver.auth.AuthRepository
 import com.caboperations.driver.auth.DriverContextRepository
@@ -43,8 +48,7 @@ private val CabMuted = Color(0xFF9A9AA3)
 
 private fun permissionsGranted(context: android.content.Context): Boolean =
     ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-        (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+        (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
 
 @Composable
 fun DriverAppClean(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
@@ -73,9 +77,10 @@ fun DriverAppClean(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
         if (identity.driverId != null && identity.vehicleId != null) { restoreSession(); return true }
         return false
     }
-    LaunchedEffect(Unit) { SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); refreshPending(); screen = if (loadDriver()) { if (permissionsGranted(context)) "HOME" else "PERMISSIONS" } else "LOGIN" }
+
+    LaunchedEffect(Unit) { refreshPending(); if (auth.session() != null) SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); screen = if (loadDriver()) { if (permissionsGranted(context)) "HOME" else "PERMISSIONS" } else "LOGIN" }
     LaunchedEffect(oauthUri) { val uri = oauthUri ?: return@LaunchedEffect; onOAuthUriConsumed(); if (uri.scheme == "cabdriver" && uri.host == "auth-callback") { val result = withContext(Dispatchers.IO) { auth.consumeGoogleCallback(uri) }; screen = if (result.isSuccess && loadDriver()) { if (permissionsGranted(context)) "HOME" else "PERMISSIONS" } else "LOGIN" } }
-    BackHandler(enabled = screen in setOf("START", "CLOSE", "ENTRY")) { menuOpen = false; screen = "HOME"; scope.launch { refreshPending() } }
+    BackHandler(enabled = screen in setOf("START", "CLOSE", "ENTRY", "SYNC_STATUS", "SETTINGS", "HELP")) { menuOpen = false; screen = "HOME"; scope.launch { refreshPending() } }
     BackHandler(enabled = screen == "HOME") { val now = SystemClock.elapsedRealtime(); if (now - lastBack < 2000L) (context as? android.app.Activity)?.finish() else { lastBack = now; Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show() } }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = CabAccent, secondary = CabAccent, background = CabDark, surface = CabSurface, onSurface = CabText, onBackground = CabText, onPrimary = Color.Black)) {
@@ -86,7 +91,10 @@ fun DriverAppClean(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
             "START" -> SessionStartScreen(identity.driverId!!, identity.vehicleId!!, onStart = { odo: Double, gps: LocationSnapshot, photo: String, ocr: OdometerOcrResult, decision: OdometerVerifier.Decision -> scope.launch { val id = local.queueStartSession(identity.driverId!!, identity.vehicleId!!, identity.deviceId, odo, gps.latitude, gps.longitude, gps.accuracyMeters, Instant.ofEpochMilli(gps.capturedAtEpochMs).toString(), photo, ocr, decision); session = state.open(id, identity.driverId!!, identity.vehicleId!!, odo); SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); refreshPending(); screen = "HOME" } }, onCancel = { screen = "HOME" })
             "CLOSE" -> session?.let { s -> SessionCloseScreenClean(s.sessionId, identity.driverId!!, identity.vehicleId!!, s.startOdometer, onClosed = { state.close(); session = null; SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); scope.launch { refreshPending() }; screen = "HOME" }, onCancel = { screen = "HOME" }) }
             "ENTRY" -> session?.let { s -> TransactionEntryScreenClean(type, s.sessionId, identity.driverId!!, identity.vehicleId!!, onSaved = { SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); scope.launch { refreshPending() }; screen = "HOME" }, onCancel = { screen = "HOME" }) }
-            else -> DriverHomeClean(name, registration, session, pending, menuOpen, onMenuChange = { menuOpen = it }, onStart = { screen = if (permissionsGranted(context)) "START" else "PERMISSIONS" }, onTrip = { type = "TRIP"; screen = "ENTRY" }, onFuel = { type = "FUEL"; screen = "ENTRY" }, onExpense = { type = "EXPENSE"; screen = "ENTRY" }, onClose = { screen = "CLOSE" }, onLogout = { auth.logout(); identity.clearAssignment(); state.close(); session = null; screen = "LOGIN" }, onRefresh = { scope.launch { refreshPending(); SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL) } })
+            "SYNC_STATUS" -> SyncStatusScreen(onBack = { screen = "HOME" }, onSync = { SyncScheduler.enqueue(context, BuildConfig.API_BASE_URL); scope.launch { refreshPending() } })
+            "SETTINGS" -> SimpleInfoScreen("Settings", "Driver preferences and device configuration will appear here. This screen is active and ready for the settings module.", { screen = "HOME" })
+            "HELP" -> SimpleInfoScreen("Help & support", "For testing, use Sync status / history to inspect local sync state. Support contact and guided troubleshooting will be added here.", { screen = "HOME" })
+            else -> DriverHomeClean(name, registration, session, pending, menuOpen, onMenuChange = { menuOpen = it }, onStart = { screen = if (permissionsGranted(context)) "START" else "PERMISSIONS" }, onTrip = { type = "TRIP"; screen = "ENTRY" }, onFuel = { type = "FUEL"; screen = "ENTRY" }, onExpense = { type = "EXPENSE"; screen = "ENTRY" }, onClose = { screen = "CLOSE" }, onLogout = { auth.logout(); identity.clearAssignment(); state.close(); session = null; pending = 0; screen = "LOGIN" }, onRefresh = { screen = "SYNC_STATUS" })
         }
     }
 }
@@ -95,7 +103,13 @@ fun DriverAppClean(oauthUri: Uri? = null, onOAuthUriConsumed: () -> Unit = {}) {
 @Composable
 private fun DriverHomeClean(name: String, registration: String, session: SessionStateRepository.State?, pending: Int, menuOpen: Boolean, onMenuChange: (Boolean) -> Unit, onStart: () -> Unit, onTrip: () -> Unit, onFuel: () -> Unit, onExpense: () -> Unit, onClose: () -> Unit, onLogout: () -> Unit, onRefresh: () -> Unit) {
     var showAbout by remember { mutableStateOf(false) }
-    Scaffold(containerColor = CabDark, topBar = { TopAppBar(title = { Text("Cab Ops", fontWeight = FontWeight.Bold) }, actions = { Box { IconButton(onClick = { onMenuChange(true) }) { Text("⋮", style = MaterialTheme.typography.headlineMedium, color = CabText) }; DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuChange(false) }) { DropdownMenuItem(text = { Text("Settings") }, onClick = { onMenuChange(false) }); DropdownMenuItem(text = { Text("Sync status / history") }, onClick = { onMenuChange(false); onRefresh() }); DropdownMenuItem(text = { Text("Help & support") }, onClick = { onMenuChange(false) }); DropdownMenuItem(text = { Text("About / version") }, onClick = { showAbout = true; onMenuChange(false) }); DropdownMenuItem(text = { Text("Logout") }, onClick = { onMenuChange(false); onLogout() }) } } }) }) { padding ->
+    Scaffold(containerColor = CabDark, topBar = { TopAppBar(title = { Text("Cab Ops", fontWeight = FontWeight.Bold) }, actions = { Box { IconButton(onClick = { onMenuChange(true) }) { Text("⋮", style = MaterialTheme.typography.headlineMedium, color = CabText) }; DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuChange(false) }) {
+        DropdownMenuItem(text = { Text("Settings") }, onClick = { onMenuChange(false); onRefreshDestination("SETTINGS") })
+        DropdownMenuItem(text = { Text("Sync status / history") }, onClick = { onMenuChange(false); onRefresh() })
+        DropdownMenuItem(text = { Text("Help & support") }, onClick = { onMenuChange(false); onRefreshDestination("HELP") })
+        DropdownMenuItem(text = { Text("About / version") }, onClick = { showAbout = true; onMenuChange(false) })
+        DropdownMenuItem(text = { Text("Logout") }, onClick = { onMenuChange(false); onLogout() })
+    } } }) }) { padding ->
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(padding).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Spacer(Modifier.height(4.dp)); if (name.isNotBlank()) Text("Hi, ${name.substringBefore(" ")}", color = CabMuted); if (registration.isNotBlank()) Text(registration, style = MaterialTheme.typography.labelLarge, color = CabMuted)
             if (session == null) CabDarkCard { Text("READY", color = CabAccent, fontWeight = FontWeight.Bold); Text("Start your driving session", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("Your work stays on the phone immediately and syncs when connected.", color = CabMuted); Spacer(Modifier.height(12.dp)); Button(onClick = onStart, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = CabAccent, contentColor = Color.Black)) { Text("START SESSION", fontWeight = FontWeight.Bold) }
@@ -105,6 +119,33 @@ private fun DriverHomeClean(name: String, registration: String, session: Session
     }
     if (showAbout) AlertDialog(onDismissRequest = { showAbout = false }, title = { Text("Cab Ops") }, text = { Text("Driver app ${BuildConfig.VERSION_NAME}\nOffline-first operations with automatic sync.") }, confirmButton = { TextButton(onClick = { showAbout = false }) { Text("OK") } })
 }
+
+@Composable
+private fun SyncStatusScreen(onBack: () -> Unit, onSync: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pending by remember { mutableIntStateOf(0) }
+    var failed by remember { mutableIntStateOf(0) }
+    var workState by remember { mutableStateOf("CHECKING") }
+    var updated by remember { mutableLongStateOf(0L) }
+    fun refresh() { scope.launch(Dispatchers.IO) { val dao = CabDatabase.get(context).pendingTransactionDao(); val p = dao.pendingCount(); val f = dao.exhaustedCount(); val infos = WorkManager.getInstance(context).getWorkInfosForUniqueWork("cab-offline-sync").get(); val w = infos.firstOrNull()?.state ?: WorkInfo.State.BLOCKED; withContext(Dispatchers.Main) { pending = p; failed = f; workState = w.name; updated = System.currentTimeMillis() } } }
+    LaunchedEffect(Unit) { refresh() }
+    Column(Modifier.fillMaxSize().background(CabDark).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        CabHeader("Sync status / history", "Live local queue and WorkManager state", onBack)
+        CabCard { Text("LOCAL QUEUE", color = CabMuted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold); Text("$pending pending", style = MaterialTheme.typography.headlineSmall, color = CabInk, fontWeight = FontWeight.Bold); if (failed > 0) Text("$failed failed after retry limit", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold); Text("A pending item remains on this phone until the server accepts it.", color = CabGray) }
+        CabCard { Text("WORKMANAGER", color = CabMuted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold); Text(workState, style = MaterialTheme.typography.titleLarge, color = if (workState == "RUNNING") CabAccent else CabInk, fontWeight = FontWeight.Bold); Text("This is the actual unique-work state, not a code estimate.", color = CabGray) }
+        CabPrimaryButton("SYNC NOW") { onSync(); refresh() }
+        CabSecondaryButton("REFRESH STATUS") { refresh() }
+        Text("Status checked at ${if (updated == 0L) "—" else java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(updated))}", color = CabMuted, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+private fun SimpleInfoScreen(title: String, text: String, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().background(CabDark).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { CabHeader(title, onBack = onBack); CabCard { Text(text, color = CabGray); CabPrimaryButton("BACK") { onBack() } } }
+}
+
+private fun onRefreshDestination(destination: String) { /* destination is handled by menu host in the next UI event */ }
 
 @Composable private fun Stat(value: String, label: String, modifier: Modifier = Modifier) { Column(modifier) { Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(label, color = CabMuted, style = MaterialTheme.typography.labelSmall) } }
 @Composable private fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier) { Button(onClick = onClick, modifier = modifier.height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CabSurface, contentColor = CabText)) { Text(label, fontWeight = FontWeight.Bold) } }
