@@ -107,7 +107,14 @@ fun SessionStartScreen(driverId: String, vehicleId: String, onStart: suspend (Do
             }
             CabStep("1", "Starting odometer photo", captureComplete) {
                 if (!captureComplete) {
-                    AndroidView(factory = { PreviewView(it) }, modifier = Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(16.dp)), update = { view -> CameraPreviewController(context).bind(owner, view) { imageCapture = it } })
+                    AndroidView(
+                        factory = { viewContext ->
+                            PreviewView(viewContext).also { previewView ->
+                                CameraPreviewController(context).bind(owner, previewView) { imageCapture = it }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(16.dp))
+                    )
                     CabPrimaryButton(if (busy) "Reading odometer…" else "Take photo & read", enabled = imageCapture != null && !busy) {
                         val capture = imageCapture ?: return@CabPrimaryButton
                         busy = true; status = "Taking photo…"
