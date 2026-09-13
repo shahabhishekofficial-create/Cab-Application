@@ -19,6 +19,8 @@ val CabAmber = Color(0xFFFFC857)
 val CabAmberSoft = Color(0xFF302812)
 val CabInk = Color(0xFFF5F5F7)
 val CabGray = Color(0xFF9A9AA3)
+val CabText = Color(0xFFF5F5F7)
+val CabAccent = Color(0xFFB7FF3C)
 
 @Composable
 fun CabScreen(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
@@ -78,6 +80,3 @@ fun CabSecondaryButton(text: String, enabled: Boolean = true, onClick: () -> Uni
         Text(text, fontWeight = FontWeight.SemiBold)
     }
 }
-
-private val CabAccent = Color(0xFFB7FF3C)
-private val CabText = Color(0xFFF5F5F7)
