@@ -9,6 +9,7 @@ import { registerPlatformRoutes } from './routes/platforms.js';
 import { registerExpenseCategoryRoutes } from './routes/expense-categories.js';
 import { registerAdminSessionRoutes } from './routes/admin-sessions.js';
 import { registerAdminMetricsRoutes } from './routes/admin-metrics.js';
+import { registerAdminDashboardRoutes } from './routes/admin-dashboard.js';
 import { registerAdminExportRoutes } from './routes/admin-exports.js';
 import { registerAdminDriverRoutes } from './routes/admin-drivers.js';
 
@@ -61,6 +62,7 @@ await registerPlatformRoutes(app);
 await registerExpenseCategoryRoutes(app);
 await registerAdminSessionRoutes(app);
 await registerAdminMetricsRoutes(app);
+await registerAdminDashboardRoutes(app);
 await registerAdminExportRoutes(app);
 await registerAdminDriverRoutes(app);
 await registerSessionRoutes(app);
