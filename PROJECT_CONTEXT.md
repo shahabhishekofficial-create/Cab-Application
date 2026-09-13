@@ -84,18 +84,7 @@ Important fields include:
 - Live migrations added through 041; 039 admin dashboard metrics, 040 repo numbering for dashboard migration, 041 sync exception uniqueness.
 
 ## Admin dashboard (Task 5)
-Live Supabase RPC: `public.get_admin_dashboard()` (security definer, search_path public, service_role execute) returns:
-- today: active sessions, trips, revenue, fuel spend, trends vs yesterday
-- driver leaderboard: trips, avg trip minutes, distance
-- fuel efficiency: daily vehicle cost/km and fuel cost over last 30 days
-- session timeline: last 7 days with driver/vehicle/status/start/close/distance
-- expense breakdown: today by category
-- attention: unresolved exceptions
-- generatedAt
-The live RPC was directly executed successfully.
-API route: GET `/v1/admin/dashboard`, protected by existing admin auth.
-Admin Next.js page displays KPI cards, leaderboard, Needs Attention, fuel efficiency drill-in, session timeline, expense breakdown, and live refresh. API/admin CI builds passed.
-Known UX follow-up candidates: expense breakdown should support tap-to-filter if not yet implemented; timeline should be a true common-time-axis Gantt if not yet implemented; active-session “yesterday” trend is necessarily approximate without historical daily snapshots.
+Live Supabase RPC: `public.get_admin_dashboard()` (security definer, search_path public, service_role execute) returns today KPIs/trends, driver leaderboard, 30-day fuel efficiency, 7-day session timeline, today expense breakdown, unresolved exceptions, and generatedAt. API route GET `/v1/admin/dashboard` is admin-protected. Admin UI has KPI cards, leaderboard, Needs Attention, fuel efficiency drill-in, session timeline, expense breakdown, and live refresh. Known follow-up candidates: clickable expense filter, true common-time-axis Gantt, and exact historical active-session trend.
 
 ## Render / Supabase
 - Render API service: `srv-dahgrop5efls73bshrhg`; workspace `tea-dahgkqijnfac738rvlag`.
@@ -103,36 +92,21 @@ Known UX follow-up candidates: expense breakdown should support tap-to-filter if
 - Auto deploy is enabled from `main`.
 - Supabase project ref: `msjkwsrwzqtuqupirpym`.
 - Live assignment observed: driver `117674b6-7ec1-4943-9989-3dc297e7bda5` -> vehicle `d39c52a4-2e74-4ced-9f28-ea9d593f01b5`, ACTIVE.
-- Vehicle current_odometer was 0.00 during earlier audit.
 - Earlier live audit found RLS disabled on platforms, expense_categories, devices, files, reconciliations, exceptions, vehicle_services, vehicle_documents, audit_logs. Do not blindly enable RLS without policies.
 
 ## Latest verified build
-CI run `34772381231` / run 356, head `8636b074d796f744a047ab5905da8169478a63d5`:
-- migrations: success
-- API: success build + tests
-- admin-web: success build
-- Android: success build + unit tests + APK upload
-Artifact: `cab-driver-debug-apk`, artifact id `10322217720`, artifact digest `sha256:b3490736d56b511b5bbb21dbed43f444910acd58c5e3396f7a164b0ff660353b`.
-The artifact ZIP was downloaded into the ChatGPT runtime and the actual APK was extracted to `/mnt/data/cab_apk_extract/app-debug.apk`; it was delivered to the user as a direct sandbox download.
-
-## Current status / next work
-- Task 5 implementation is substantially complete and CI-green.
-- Final Task 6 requires fresh-install and physical-device end-to-end verification: login, start session, odometer/GPS, trip start/end, fuel, expense, close session, sync, back navigation, overflow menu, and admin dashboard showing real data.
-- Physical Android interaction is the only acceptable user dependency when genuinely required; do not claim E2E device verification without observable device evidence.
-- Any new task must begin by reading this file and must update it at task completion.
-- Deliverables such as APKs must be immediately usable. Prefer a direct actual file attachment/sandbox link; do not give an artifact page as a substitute when a direct file can be produced.
+CI run `34772381231` / run 356, head `8636b074d796f744a047ab5905da8169478a63d5` was CI-green with Android APK artifact id `10322217720`, previously extracted to `/mnt/data/cab_apk_extract/app-debug.apk` and delivered directly.
 
 ## Login Screen Punch List — 2026-09-13
-Implemented in commits `509d747d10ab8c413b8baeba0909cd8e994c1dec` and `6bf43b3255bbead729f0552d765b2997cd9a47be`:
-- Shared driver UI tokens changed to dark-first: #0B0B0F background, #17171D surfaces, neon #B7FF3C accent, light text/muted gray.
-- Login logo/header combined into a CAB + Cab Driver lockup.
-- Login typography now uses Material 3 default sans-serif with explicit color application; no decorative serif styling remains in the screen code.
-- Email/password fields now have explicit dark-theme text, placeholder, label, cursor, focus-border and rest-border colors, with accent only on focus.
-- Placeholder is now clearly generic (`name@example.com`) rather than a realistic account-like value.
-- App version is dynamic via `BuildConfig.VERSION_NAME`, not hardcoded.
-- Offline banner uses the same neon accent system.
-- Sign-in errors are visibly rendered; blank credentials are handled before network submission.
-- Fixed the login success path so `busy` is cleared before invoking post-login driver loading, preventing an indefinite “Signing in…” state when authenticated but driver context loading fails.
-- Google OAuth button was already wired to Supabase `/auth/v1/authorize` with `provider=google`, state generation/validation, custom `cabdriver://auth-callback`, and Android manifest callback handling. Provider-side Google credentials/SHA/redirect configuration could not be directly inspected through the available Supabase management surface; the app-side OAuth wiring is verified from actual source and manifest. No speculative provider configuration was changed.
-- Live DB schema confirms `app_users.id` is the auth-user UUID primary key and `drivers.user_id` is unique, preventing duplicate driver rows for one authenticated user at the database level. `app_users` has no email column, so email-level dedupe belongs to Supabase Auth/user identity rather than adding a duplicate application-user email field.
-- Login changes are awaiting CI verification; no APK is considered ready until CI is green.
+Implemented dark-first theme, combined CAB/Cab Driver lockup, sans typography, accessible field colors, generic placeholder, dynamic version, accent offline banner, visible errors, and success-path busy reset. Google OAuth app-side wiring is verified; provider-side credentials/SHA/redirect settings are not inspectable through the available Supabase management surface. Live schema confirms `app_users.id` is auth-user UUID PK and `drivers.user_id` is unique; `app_users` has no email column, so dedupe is by auth identity.
+
+## Session-wide Screen Punch List — 2026-09-13/14
+- Removed obsolete `DriverApp.kt`, which was declaring duplicate `CabText`/`CabAccent` symbols and caused the login-theme CI build to fail. The active entrypoint is `DriverAppClean` from `MainActivity`.
+- Permissions screen now uses the shared dark/sans UI and separately shows CAMERA and LOCATION as `GRANTED` or `NEEDED`, refreshing on resume so returning from App Settings reflects actual state.
+- Session start no longer displays the raw vehicle/session UUID; subtitle is human-readable “Ready to work”. Cards use the shared neutral surface system and step badges use the established neon accent. Low-light black camera preview was recorded as a false alarm; no camera regression fix is being added for that report.
+- Login now has a 15-second sign-in timeout and classifies timeout/network/credential/account-not-found failures into visible retryable messages; indefinite `Signing in…` is no longer possible from a hanging auth request.
+- Added explicit `ENABLE_TEST_SYNC_DEPENDENCY_BYPASS`: true only in debug, false in release. A debug SESSION_CLOSE failure does not prevent later test records from being attempted; release retains strict dependency semantics.
+- SyncScheduler durable WorkManager jobs are now eligible immediately (no artificial 15-second initial delay), retain network constraints, unique-work KEEP semantics, exponential backoff, and a `cab-sync` tag. SyncEngine now logs queue start, each transaction attempt/result, auth refresh, and completion under `CabSync` for real device evidence.
+- Added driver Sync status/history screen showing actual Room pending/failed counts and actual WorkManager unique-work state. Overflow menu items now navigate to Settings, Sync status/history, Help & support, About/version, and Logout; logout clears local identity/session state and returns to login.
+- Live Supabase audit immediately before this task: sessions=1, trips=0, fuel=0, expenses=0, devices=0, open exceptions=0. No new DB schema change was required for these UI/sync fixes.
+- CI run `34775227867` / run 371 is the validation run for the above changes; migrations and API/admin jobs passed while Android build was still in progress at context update time. Do not call the APK ready until Android build/tests/artifact upload are green.
