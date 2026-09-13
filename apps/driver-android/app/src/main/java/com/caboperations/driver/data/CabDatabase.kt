@@ -16,6 +16,7 @@ import com.caboperations.driver.sync.SyncPolicy
  @Query("UPDATE pending_transactions SET attempts = attempts + 1, lastError = :error WHERE clientTransactionId = :id") suspend fun markFailed(id:String,error:String)
  @Query("SELECT COUNT(*) FROM pending_transactions WHERE synced = 0 AND (attempts < ${SyncPolicy.MAX_RETRY_ATTEMPTS} OR lastError = 'TRANSACTION_FAILED')") suspend fun pendingCount():Int
  @Query("SELECT COUNT(*) FROM pending_transactions WHERE synced = 0 AND attempts >= ${SyncPolicy.MAX_RETRY_ATTEMPTS} AND lastError <> 'TRANSACTION_FAILED'") suspend fun exhaustedCount():Int
+ @Query("SELECT * FROM pending_transactions WHERE synced = 0 AND attempts >= ${SyncPolicy.MAX_RETRY_ATTEMPTS} AND lastError <> 'TRANSACTION_FAILED' ORDER BY createdAt LIMIT 10") suspend fun exhausted():List<PendingTransaction>
  @Query("SELECT * FROM pending_transactions WHERE clientTransactionId = :id LIMIT 1") suspend fun find(id:String):PendingTransaction?
 }
 
