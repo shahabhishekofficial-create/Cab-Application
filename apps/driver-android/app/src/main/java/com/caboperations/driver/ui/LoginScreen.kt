@@ -19,6 +19,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.caboperations.driver.BuildConfig
 import com.caboperations.driver.auth.AuthRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,6 +33,18 @@ fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = CabText,
+        unfocusedTextColor = CabText,
+        disabledTextColor = CabGray,
+        focusedLabelColor = CabAccent,
+        unfocusedLabelColor = CabGray,
+        focusedBorderColor = CabAccent,
+        unfocusedBorderColor = Color(0xFF4A4A54),
+        cursorColor = CabAccent,
+        focusedPlaceholderColor = CabGray,
+        unfocusedPlaceholderColor = CabGray,
+    )
 
     Box(Modifier.fillMaxSize().background(CabPageBackground).imePadding()) {
         Column(
@@ -40,15 +53,18 @@ fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(Modifier.height(20.dp))
-            Surface(shape = RoundedCornerShape(24.dp), color = CabPurpleSoft) {
-                Text("CAB", modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp), color = CabPurple, fontWeight = FontWeight.ExtraBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(shape = RoundedCornerShape(14.dp), color = CabAccent) {
+                    Text("CAB", modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp), color = Color.Black, fontWeight = FontWeight.ExtraBold)
+                }
+                Text("Cab Driver", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = CabText)
             }
-            Text("Welcome back", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text("Welcome back", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = CabText)
             Text("Sign in to manage your cab day", color = CabGray)
-            Text("App version 1.3", style = MaterialTheme.typography.labelMedium, color = CabGray)
+            Text("App version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium, color = CabGray)
 
             CabCard {
-                Text("Driver login", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Driver login", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = CabText)
                 OutlinedButton(
                     onClick = {
                         error = ""
@@ -56,29 +72,34 @@ fun LoginScreen(auth: AuthRepository, onLoggedIn: () -> Unit) {
                             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { addCategory(Intent.CATEGORY_BROWSABLE) }) }
                                 .onFailure { error = it.message ?: "Unable to open Google sign in" }
                         }.onFailure { error = it.message ?: "Google sign in unavailable" }
-                    }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp)
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(15.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = CabText),
+                    border = ButtonDefaults.outlinedButtonBorder,
                 ) { Text("Continue with Google", fontWeight = FontWeight.SemiBold) }
 
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    HorizontalDivider(Modifier.weight(1f)); Text("  or  ", style = MaterialTheme.typography.labelSmall, color = CabGray); HorizontalDivider(Modifier.weight(1f))
+                    HorizontalDivider(Modifier.weight(1f), color = Color(0xFF34343C)); Text("  or  ", style = MaterialTheme.typography.labelSmall, color = CabGray); HorizontalDivider(Modifier.weight(1f), color = Color(0xFF34343C))
                 }
-                OutlinedTextField(email, { email = it; error = "" }, label = { Text("Email address") }, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next), shape = RoundedCornerShape(14.dp))
-                OutlinedTextField(password, { password = it; error = "" }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done), shape = RoundedCornerShape(14.dp))
+                OutlinedTextField(email, { email = it; error = "" }, label = { Text("Email address") }, placeholder = { Text("name@example.com") }, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next), shape = RoundedCornerShape(14.dp), colors = fieldColors)
+                OutlinedTextField(password, { password = it; error = "" }, label = { Text("Password") }, placeholder = { Text("Enter your password") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done), shape = RoundedCornerShape(14.dp), colors = fieldColors)
                 if (error.isNotBlank()) {
-                    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFFFE7E7)) { Text(error, modifier = Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.error) }
+                    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF3A2024)) { Text(error, modifier = Modifier.fillMaxWidth().padding(12.dp), color = Color(0xFFFF8F9A)) }
                 }
                 CabPrimaryButton(if (busy) "Signing in…" else "Sign in", enabled = !busy) {
                     if (email.isBlank() || password.isBlank()) { error = "Enter your email and password"; return@CabPrimaryButton }
                     busy = true
                     scope.launch {
                         val result = withContext(Dispatchers.IO) { auth.login(email.trim(), password) }
-                        if (result.isSuccess) onLoggedIn() else { error = result.exceptionOrNull()?.message ?: "Login failed. Check your details and try again."; busy = false }
+                        if (result.isSuccess) { busy = false; onLoggedIn() } else { error = result.exceptionOrNull()?.message ?: "Login failed. Check your details and try again."; busy = false }
                     }
                 }
             }
 
-            Surface(shape = RoundedCornerShape(16.dp), color = CabGreenSoft) {
-                Text("Works offline • your saved entries stay on your phone until they sync.", modifier = Modifier.padding(14.dp), color = CabGreen, style = MaterialTheme.typography.bodySmall)
+            Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF202A16)) {
+                Text("Works offline • your saved entries stay on your phone until they sync.", modifier = Modifier.padding(14.dp), color = CabAccent, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
