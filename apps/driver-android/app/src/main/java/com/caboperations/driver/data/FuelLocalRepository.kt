@@ -10,44 +10,11 @@ import java.util.UUID
 class FuelLocalRepository(private val context: android.content.Context) {
     private val db get() = CabDatabase.get(context)
 
-    suspend fun queueFuel(
-        sessionId: String,
-        driverId: String,
-        vehicleId: String,
-        fuelType: String,
-        odometer: Double,
-        quantity: Double,
-        unit: String,
-        rate: Double,
-        amount: Double,
-        paymentMethod: String? = null,
-        receiptFileId: String? = null,
-        latitude: Double? = null,
-        longitude: Double? = null,
-        gpsAccuracyM: Double? = null,
-        recordedAt: String = Instant.now().toString(),
-        notes: String? = null,
-        location: LocationSnapshot
-    ): String {
-        require(quantity > 0) { "Fuel quantity must be positive" }
-        require(rate >= 0 && amount >= 0 && odometer >= 0) { "Invalid fuel values" }
-        require(kotlin.math.abs(amount - quantity * rate) <= 0.01) { "Fuel amount must equal quantity × rate" }
-        require(location.isUsable()) { "GPS accuracy is insufficient or location is stale" }
-
-        val id = UUID.randomUUID().toString()
-        val payload = buildJsonObject {
-            put("clientTransactionId", id); put("sessionId", sessionId); put("driverId", driverId); put("vehicleId", vehicleId)
-            put("fuelType", fuelType); put("odometer", odometer); put("quantity", quantity); put("unit", unit); put("rate", rate); put("amount", amount)
-            paymentMethod?.let { put("paymentMethod", it) }; receiptFileId?.let { put("receiptFileId", it) }
-            put("latitude", location.latitude); put("longitude", location.longitude); put("gpsAccuracyM", location.accuracyMeters.toDouble())
-            put("recordedAt", recordedAt); notes?.let { put("notes", it) }
-        }.toString()
-
-        db.withTransaction {
-            OdometerGuard.requireAtLeast(db, sessionId, odometer, "Fuel odometer")
-            db.pendingTransactionDao().insert(PendingTransaction(id, "FUEL", payload, System.currentTimeMillis()))
-            db.localFuelDao().insert(LocalFuel(id, sessionId, odometer, quantity, rate, amount, fuelType, false))
-        }
+    suspend fun queueFuel(sessionId:String,driverId:String,vehicleId:String,fuelType:String,odometer:Double,quantity:Double,unit:String,rate:Double,amount:Double,paymentMethod:String?=null,receiptFileId:String?=null,latitude:Double?=null,longitude:Double?=null,gpsAccuracyM:Double?=null,recordedAt:String=Instant.now().toString(),notes:String?=null,location:LocationSnapshot?):String {
+        require(quantity>0){"Fuel quantity must be positive"}; require(rate>=0&&amount>=0&&odometer>=0){"Invalid fuel values"}; require(kotlin.math.abs(amount-quantity*rate)<=0.01){"Fuel amount must equal quantity × rate"}
+        val id=UUID.randomUUID().toString(); val usable=location?.takeIf{it.isUsable()}; val at=usable?.let{Instant.ofEpochMilli(it.capturedAtEpochMs).toString()}
+        val payload=buildJsonObject{put("clientTransactionId",id);put("sessionId",sessionId);put("driverId",driverId);put("vehicleId",vehicleId);put("fuelType",fuelType);put("odometer",odometer);put("quantity",quantity);put("unit",unit);put("rate",rate);put("amount",amount);paymentMethod?.let{put("paymentMethod",it)};receiptFileId?.let{put("receiptFileId",it)};usable?.let{put("latitude",it.latitude);put("longitude",it.longitude);put("gpsAccuracyM",it.accuracyMeters.toDouble());put("recordedAt",at ?: recordedAt)}?:put("recordedAt",recordedAt);notes?.let{put("notes",it)}}.toString()
+        db.withTransaction{OdometerGuard.requireAtLeast(db,sessionId,odometer,"Fuel odometer");db.pendingTransactionDao().insert(PendingTransaction(id,"FUEL",payload,System.currentTimeMillis()));db.localFuelDao().insert(LocalFuel(id,sessionId,odometer,quantity,rate,amount,fuelType,false))}
         return id
     }
 }
