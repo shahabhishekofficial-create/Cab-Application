@@ -49,7 +49,7 @@ begin
     end_latitude=p_latitude,end_longitude=p_longitude,end_gps_accuracy_m=p_gps_accuracy_m,end_gps_at=p_gps_at,
     gps_distance_km=case when v_trip.latitude is not null and v_trip.longitude is not null and p_latitude is not null and p_longitude is not null then public.calculate_gps_distance_km(v_trip.latitude,v_trip.longitude,p_latitude,p_longitude) else null end,
     pickup=coalesce(p_pickup,pickup),dropoff=coalesce(p_dropoff,dropoff),platform_id=coalesce(p_platform_id,platform_id),notes=coalesce(p_notes,notes),
-    route_distance_m=coalesce(p_route_distance_m,route_distance_m),route_duration_seconds=coalesce(p_route_duration_seconds,route_duration_seconds),route_polyline=coalesce(p_route_polyline,route_polyline),route_provider=coalesce(p_route_provider,route_provider),updated_at=now()
+    route_distance_km=coalesce(p_route_distance_m/1000.0,route_distance_km),route_duration_seconds=coalesce(p_route_duration_seconds,route_duration_seconds),route_polyline=coalesce(p_route_polyline,route_polyline),route_provider=coalesce(p_route_provider,route_provider),updated_at=now()
   where id=v_trip.id returning * into v_trip;
   return jsonb_build_object('id',v_trip.id,'status','ENDED','gpsDistanceKm',v_trip.gps_distance_km);
 end; $$;
