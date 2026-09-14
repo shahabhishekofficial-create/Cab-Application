@@ -6,20 +6,28 @@ import { authErrorResponse, requireDriver } from '../auth/driver-auth.js';
 
 function mapDatabaseError(error: unknown): { status: number; body: Record<string, unknown> } | null {
   const auth = authErrorResponse(error); if (auth) return auth;
-  const message = error instanceof Error ? error.message : String(error);
+  const candidate = error as { message?: unknown; code?: unknown };
+  const message = typeof candidate?.message === 'string' ? candidate.message : error instanceof Error ? error.message : String(error);
+  const dbCode = typeof candidate?.code === 'string' ? candidate.code : '';
   const known: Record<string, string> = {
     DRIVER_VEHICLE_NOT_ASSIGNED:'DRIVER_VEHICLE_NOT_ASSIGNED', VEHICLE_NOT_ACTIVE:'VEHICLE_NOT_ACTIVE', SESSION_ALREADY_OPEN:'SESSION_ALREADY_OPEN',
     SESSION_ID_MISMATCH:'SESSION_ID_MISMATCH', NO_OPEN_SESSION:'NO_OPEN_SESSION', SESSION_CLOSED:'SESSION_CLOSED', SESSION_DRIVER_MISMATCH:'SESSION_DRIVER_MISMATCH', SESSION_VEHICLE_MISMATCH:'SESSION_VEHICLE_MISMATCH',
     INVALID_CLOSE_ODOMETER:'INVALID_CLOSE_ODOMETER', CLOSE_TIME_BEFORE_START:'CLOSE_TIME_BEFORE_START', ODOMETER_REGRESSION:'ODOMETER_REGRESSION',
     GPS_REQUIRED:'GPS_REQUIRED', GPS_INVALID_COORDINATES:'GPS_INVALID_COORDINATES', GPS_ACCURACY_TOO_LOW:'GPS_ACCURACY_TOO_LOW', GPS_STALE:'GPS_STALE',
   };
-  const code=Object.keys(known).find(key=>message.includes(key)); return code?{status:409,body:{error:known[code],message}}:null;
+  const code=Object.keys(known).find(key=>message.includes(key)) ?? Object.keys(known).find(key=>dbCode===key);
+  return code?{status: code==='SESSION_ALREADY_OPEN'?409:409,body:{error:known[code],message}}:null;
 }
 
 export async function registerSessionRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/sessions', async (request, reply) => {
     const parsed=startSessionSchema.safeParse(request.body); if(!parsed.success)return reply.code(400).send({error:'VALIDATION_ERROR',details:parsed.error.issues});
-    try { const driver=await requireDriver(request); const result=await persistStartSession({...parsed.data,driverId:driver.driverId,vehicleId:driver.vehicleId}); return reply.code(201).send({accepted:true,...result}); }
+    try {
+      const driver=await requireDriver(request);
+      request.log.info({ clientTransactionId: parsed.data.clientTransactionId, sessionId: parsed.data.sessionId, driverId: driver.driverId, vehicleId: driver.vehicleId }, 'session start sync');
+      const result=await persistStartSession({...parsed.data,driverId:driver.driverId,vehicleId:driver.vehicleId});
+      return reply.code(201).send({accepted:true,...result});
+    }
     catch(error){const mapped=mapDatabaseError(error);if(mapped)return reply.code(mapped.status).send(mapped.body);throw error;}
   });
 
