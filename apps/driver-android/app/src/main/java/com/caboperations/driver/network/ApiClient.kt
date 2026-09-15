@@ -4,6 +4,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -17,11 +18,7 @@ class ApiClient(private val baseUrl: String, private val accessToken: String? = 
         val stream = runCatching { connection.errorStream ?: connection.inputStream }.getOrNull() ?: return classified
         val body = runCatching { stream.use { it.readBytes().toString(StandardCharsets.UTF_8) } }.getOrNull().orEmpty()
         if (body.isBlank()) return classified
-        val serverError = runCatching {
-            Json.parseToJsonElement(body).jsonObject["error"]?.jsonPrimitive?.content
-        }.getOrNull()
-        val detail = serverError?.takeIf { it.isNotBlank() }
-        return if (detail != null) classified.copy(error = detail) else classified
+        return classified.copy(error = extractServerError(body) ?: classified.error)
     }
 
     fun post(path: String, body: String, driverId: String?, vehicleId: String?): Result {
@@ -54,6 +51,12 @@ class ApiClient(private val baseUrl: String, private val accessToken: String? = 
     }
 
     companion object {
+        internal fun extractServerError(body: String): String? = runCatching {
+            val root = Json.parseToJsonElement(body).jsonObject
+            fun text(value: JsonElement?): String? = value?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+            text(root["code"]) ?: text(root["error"]) ?: root["error"]?.jsonObject?.let { text(it["code"]) ?: text(it["message"]) }
+        }.getOrNull()
+
         internal fun classifyHttpCode(code: Int): Result = when {
             code in 200..299 -> Result(true, false)
             code == 401 -> Result(false, false, "AUTH_EXPIRED", authExpired = true)
