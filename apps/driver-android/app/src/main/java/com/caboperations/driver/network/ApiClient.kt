@@ -53,7 +53,9 @@ class ApiClient(private val baseUrl: String, private val accessToken: String? = 
     companion object {
         internal fun extractServerError(body: String): String? = runCatching {
             val root = Json.parseToJsonElement(body).jsonObject
-            fun text(value: JsonElement?): String? = value?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            fun text(value: JsonElement?): String? = runCatching { value?.jsonPrimitive?.content }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
             text(root["code"]) ?: text(root["error"]) ?: root["error"]?.jsonObject?.let { text(it["code"]) ?: text(it["message"]) }
         }.getOrNull()
 
