@@ -52,13 +52,17 @@ class TripLocalRepository(private val context: android.content.Context) {
         OdometerGuard.requireAtLeast(db, sessionId, endOdometer, "Trip end odometer")
         require(endOdometer >= active.startOdometer) { "Ending odometer cannot be less than trip start odometer" }
         val id = UUID.randomUUID().toString(); val endedAt = gpsTime(location) ?: Instant.now().toString()
+        val auditNotes = buildString {
+            notes?.takeIf { it.isNotBlank() }?.let { append(it).append(" | ") }
+            append("TOLL_CHARGES=").append("%.2f".format(tollCharges)).append(";PARKING_CHARGES=").append("%.2f".format(parkingCharges))
+        }
         val payload = buildJsonObject {
             put("clientTransactionId", id); put("tripClientTransactionId", tripClientTransactionId); put("sessionId", sessionId); put("driverId", driverId); put("vehicleId", vehicleId)
             put("endedAt", endedAt); put("endOdometer", endOdometer); put("grossFare", grossFare)
             paymentMethod?.let { put("paymentMethod", it) }; put("additionalCharges", calculatedAdditional); put("tollCharges", tollCharges); put("parkingCharges", parkingCharges); put("status", status)
             platformId?.let { put("platformId", it) }; pickup?.let { put("pickup", it) }; dropoff?.let { put("dropoff", it) }
             location?.takeIf { it.isUsable() }?.let { put("latitude", it.latitude); put("longitude", it.longitude); put("gpsAccuracyM", it.accuracyMeters.toDouble()); put("gpsAt", endedAt) }
-            notes?.let { put("notes", it) }
+            put("notes", auditNotes)
         }.toString()
         db.withTransaction { db.pendingTransactionDao().insert(PendingTransaction(id, "TRIP_END", payload, System.currentTimeMillis())); db.localTripDao().finish(tripClientTransactionId, endOdometer, grossFare, status) }
         return id
