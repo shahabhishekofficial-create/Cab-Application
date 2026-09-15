@@ -9,8 +9,14 @@ class CabApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         connectivitySyncMonitor = ConnectivitySyncMonitor(this).also { it.register() }
         SyncScheduler.ensurePeriodic(this, BuildConfig.API_BASE_URL)
         SyncScheduler.resetAndEnqueue(this, BuildConfig.API_BASE_URL)
+    }
+
+    companion object {
+        lateinit var instance: CabApplication
+            private set
     }
 }
