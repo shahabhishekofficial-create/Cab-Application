@@ -3,6 +3,7 @@ package com.caboperations.driver.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +34,7 @@ import com.caboperations.driver.ocr.OdometerOcrEngine
 import com.caboperations.driver.ocr.OdometerOcrResult
 import com.caboperations.driver.ocr.OdometerVerifier
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun SessionCloseScreen(sessionId: String, driverId: String, vehicleId: String, startOdometer: Double, onClosed: () -> Unit, onCancel: () -> Unit) {
@@ -116,11 +118,27 @@ fun SessionCloseScreen(sessionId: String, driverId: String, vehicleId: String, s
                 Text("Started at ${"%.0f".format(startOdometer)} km", color = CabPurple, fontWeight = FontWeight.SemiBold)
             }
             CabStep("1", "Closing odometer photo", captureComplete) {
-                AndroidView(factory = { PreviewView(it) }, modifier = Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(16.dp)), update = { view -> CameraPreviewController(context).bind(owner, view) { imageCapture = it } })
+                AndroidView(factory = { viewContext ->
+                    PreviewView(viewContext).also { previewView ->
+                        CameraPreviewController(viewContext).bindWithCamera(owner, previewView) { capture, _ -> imageCapture = capture }
+                    }
+                }, modifier = Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(16.dp)))
                 CabPrimaryButton(if (busy) "Reading odometer…" else "Take photo & read", enabled = imageCapture != null && !busy) {
                     val capture = imageCapture ?: return@CabPrimaryButton
-                    busy = true; status = "Taking photo…"
-                    CameraCapture(context).capture(capture, "close_odo") { result -> result.onSuccess { uri -> photoPath = uri.toString(); scope.launch { status = "Reading odometer…"; ocr = OdometerOcrEngine(context).recognize(uri); captureComplete = true; busy = false; captureGps() } }.onFailure { status = "Camera failed: ${it.message ?: "unknown error"}. Try again."; busy = false } }
+                    busy = true
+                    status = "Taking photo…"
+                    CameraCapture(context).capture(capture, "close_odo") { result ->
+                        result.onSuccess { path ->
+                            photoPath = path
+                            scope.launch {
+                                status = "Reading odometer…"
+                                ocr = OdometerOcrEngine(context).recognize(Uri.fromFile(File(path)))
+                                captureComplete = true
+                                busy = false
+                                captureGps()
+                            }
+                        }.onFailure { status = "Camera failed: ${it.message ?: "unknown error"}. Try again."; busy = false }
+                    }
                 }
             }
             if (captureComplete) CabCard(color = CabGreenSoft) {
@@ -129,20 +147,16 @@ fun SessionCloseScreen(sessionId: String, driverId: String, vehicleId: String, s
                 CabSecondaryButton("Retake photo", enabled = !busy) { captureComplete = false; ocr = null; photoPath = null; status = "Take a clear photo of the closing odometer." }
             }
             CabStep("2", "Mandatory GPS location", gps?.isUsable() == true) {
-                Text(
-                    when {
-                        gps?.isUsable() == true -> "GPS captured. Accuracy ±${gps!!.accuracyMeters.toInt()} m"
-                        gps != null -> "GPS is available but accuracy is not sufficient yet."
-                        else -> "GPS is required. Location services must be turned on before you can continue."
-                    },
-                    color = CabGray
-                )
+                Text(when {
+                    gps?.isUsable() == true -> "GPS captured. Accuracy ±${gps!!.accuracyMeters.toInt()} m"
+                    gps != null -> "GPS is available but accuracy is not sufficient yet."
+                    else -> "GPS is required. Location services must be turned on before you can continue."
+                }, color = CabGray)
             }
             if (gps?.isUsable() == true) CabCard(color = CabGreenSoft) {
                 Text("Location ready ✓", color = CabGreen, fontWeight = FontWeight.Bold)
                 Text("Accuracy ±${gps!!.accuracyMeters.toInt()} m", color = CabGray)
             }
-
             CabCard {
                 CabSectionLabel("CLOSING DETAILS")
                 OutlinedTextField(odometer, { odometer = it }, label = { Text("Closing odometer (km)") }, supportingText = { Text("Enter the number shown on the dashboard") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
@@ -158,9 +172,25 @@ fun SessionCloseScreen(sessionId: String, driverId: String, vehicleId: String, s
             }
             Surface(shape = RoundedCornerShape(14.dp), color = if (canClose) CabGreenSoft else CabAmberSoft) { Text(status, modifier = Modifier.fillMaxWidth().padding(13.dp), color = if (canClose) CabGreen else CabAmber) }
             CabPrimaryButton(if (busy) "Saving…" else "Finish & Close Session", enabled = canClose) {
-                val odo = closeOdo ?: return@CabPrimaryButton; val trips = count ?: return@CabPrimaryButton; val amount = reportedIncome ?: return@CabPrimaryButton; val location = gps ?: return@CabPrimaryButton; val photo = photoPath ?: return@CabPrimaryButton; val ocrResult = ocr ?: return@CabPrimaryButton
-                val decision = OdometerVerifier.compare(odo, ocrResult.reading, ocrResult.confidence); busy = true; status = "Saving securely on this phone…"
-                scope.launch { try { repository.queueCloseSession(sessionId, driverId, vehicleId, odo, location.latitude, location.longitude, location.accuracyMeters, java.time.Instant.ofEpochMilli(location.capturedAtEpochMs).toString(), photo, trips, amount, notes.ifBlank { null }, ocrResult, decision); status = "Session closed locally • sync queued"; onClosed() } catch (e: Exception) { status = e.message ?: "Unable to close. Your photo remains on the phone."; busy = false } }
+                val odo = closeOdo ?: return@CabPrimaryButton
+                val trips = count ?: return@CabPrimaryButton
+                val amount = reportedIncome ?: return@CabPrimaryButton
+                val location = gps ?: return@CabPrimaryButton
+                val photo = photoPath ?: return@CabPrimaryButton
+                val ocrResult = ocr ?: return@CabPrimaryButton
+                val decision = OdometerVerifier.compare(odo, ocrResult.reading, ocrResult.confidence)
+                busy = true
+                status = "Saving securely on this phone…"
+                scope.launch {
+                    try {
+                        repository.queueCloseSession(sessionId, driverId, vehicleId, odo, location.latitude, location.longitude, location.accuracyMeters, java.time.Instant.ofEpochMilli(location.capturedAtEpochMs).toString(), photo, trips, amount, notes.ifBlank { null }, ocrResult, decision)
+                        status = "Session closed locally • sync queued"
+                        onClosed()
+                    } catch (e: Exception) {
+                        status = e.message ?: "Unable to close. Your photo remains on the phone."
+                        busy = false
+                    }
+                }
             }
             CabSecondaryButton("Cancel", enabled = !busy, onClick = onCancel)
         }
