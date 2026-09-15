@@ -62,6 +62,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.caboperations.driver.capture.CameraCapture
 import com.caboperations.driver.capture.CameraPreviewController
 import com.caboperations.driver.data.CabDatabase
@@ -163,83 +164,71 @@ fun SessionStartScreen(
     }
 
     when (step) {
-        StartStep.NUMPAD -> {
-            Column(Modifier.fillMaxSize().background(Color(0xFF121212))) {
-                StartHeader("START SESSION", "Step 1 of 3", onCancel)
-                OdometerNumpad(
-                    value = odometer,
-                    currentOdometer = currentOdometer,
-                    onValueChange = { odometer = it },
-                    onNext = { error = ""; step = StartStep.CAMERA },
-                    onBack = onCancel
-                )
-            }
+        StartStep.NUMPAD -> Column(Modifier.fillMaxSize().background(Color(0xFF121212))) {
+            StartHeader("START SESSION", "Step 1 of 3", onCancel)
+            OdometerNumpad(value = odometer, currentOdometer = currentOdometer, onValueChange = { odometer = it }, onNext = { error = ""; step = StartStep.CAMERA }, onBack = onCancel)
         }
-        StartStep.CAMERA -> {
-            CameraCaptureStep(
-                imageCapture = imageCapture,
-                camera = camera,
-                flashOn = flashOn,
-                busy = busy,
-                onCameraReady = { capture, boundCamera -> imageCapture = capture; camera = boundCamera },
-                onFlash = { enabled -> flashOn = enabled; camera?.cameraControl?.enableTorch(enabled) },
-                onShutter = {
-                    val capture = imageCapture ?: return@CameraCaptureStep
-                    busy = true
-                    error = ""
-                    CameraCapture(context).capture(capture, "start_odo") { result ->
-                        result.onSuccess { uri ->
-                            photoUri = uri
-                            scope.launch {
-                                ocr = withContext(Dispatchers.Default) { OdometerOcrEngine(context).recognize(uri) }
-                                busy = false
-                                step = StartStep.CONFIRM
-                                captureGps()
-                            }
-                        }.onFailure {
-                            error = "Camera could not capture the odometer. Try again."
+        StartStep.CAMERA -> CameraCaptureStep(
+            owner = owner,
+            imageCapture = imageCapture,
+            flashOn = flashOn,
+            busy = busy,
+            onCameraReady = { capture, boundCamera -> imageCapture = capture; camera = boundCamera },
+            onFlash = { enabled -> flashOn = enabled; camera?.cameraControl?.enableTorch(enabled) },
+            onShutter = {
+                val capture = imageCapture ?: return@CameraCaptureStep
+                busy = true
+                error = ""
+                CameraCapture(context).capture(capture, "start_odo") { result ->
+                    result.onSuccess { uri ->
+                        photoUri = uri
+                        scope.launch {
+                            ocr = withContext(Dispatchers.Default) { OdometerOcrEngine(context).recognize(uri) }
                             busy = false
+                            step = StartStep.CONFIRM
+                            captureGps()
                         }
+                    }.onFailure {
+                        error = "Camera could not capture the odometer. Try again."
+                        busy = false
                     }
-                },
-                onManual = { step = StartStep.NUMPAD },
-                onBack = { step = StartStep.NUMPAD },
-                error = error
-            )
-        }
-        StartStep.CONFIRM -> {
-            OdometerConfirmationStep(
-                odometer = odometer,
-                ocr = ocr,
-                bitmap = previewBitmap,
-                gps = gps,
-                busy = busy,
-                error = error,
-                onEdit = { step = StartStep.NUMPAD },
-                onRetake = { step = StartStep.CAMERA; ocr = null; photoUri = null },
-                onConfirm = {
-                    val validation = OdometerValidation.validateStartingOdometer(odometer, currentOdometer)
-                    val value = (validation as? OdometerValidationResult.Valid)?.value
-                    val location = gps
-                    val photo = photoUri
-                    val result = ocr
-                    if (value == null || location?.isUsable() != true || photo == null || result == null) {
-                        error = "Complete the odometer and GPS checks before confirming."
-                        return@OdometerConfirmationStep
+                }
+            },
+            onManual = { step = StartStep.NUMPAD },
+            onBack = { step = StartStep.NUMPAD },
+            error = error
+        )
+        StartStep.CONFIRM -> OdometerConfirmationStep(
+            odometer = odometer,
+            ocr = ocr,
+            bitmap = previewBitmap,
+            gps = gps,
+            busy = busy,
+            error = error,
+            onEdit = { step = StartStep.NUMPAD },
+            onRetake = { step = StartStep.CAMERA; ocr = null; photoUri = null },
+            onConfirm = {
+                val validation = OdometerValidation.validateStartingOdometer(odometer, currentOdometer)
+                val value = (validation as? OdometerValidationResult.Valid)?.value
+                val location = gps
+                val photo = photoUri
+                val result = ocr
+                if (value == null || location?.isUsable() != true || photo == null || result == null) {
+                    error = "Complete the odometer and GPS checks before confirming."
+                    return@OdometerConfirmationStep
+                }
+                busy = true
+                scope.launch {
+                    try {
+                        onStart(value, location, photo.toString(), result, OdometerVerifier.compare(value, result.reading, result.confidence))
+                    } catch (e: Exception) {
+                        error = e.message ?: "Unable to start session."
+                        busy = false
                     }
-                    busy = true
-                    scope.launch {
-                        try {
-                            onStart(value, location, photo.toString(), result, OdometerVerifier.compare(value, result.reading, result.confidence))
-                        } catch (e: Exception) {
-                            error = e.message ?: "Unable to start session."
-                            busy = false
-                        }
-                    }
-                },
-                onBack = { step = StartStep.NUMPAD }
-            )
-        }
+                }
+            },
+            onBack = { step = StartStep.NUMPAD }
+        )
     }
 }
 
@@ -256,8 +245,8 @@ private fun StartHeader(title: String, subtitle: String, onBack: () -> Unit) {
 
 @Composable
 private fun CameraCaptureStep(
+    owner: LifecycleOwner,
     imageCapture: ImageCapture?,
-    camera: Camera?,
     flashOn: Boolean,
     busy: Boolean,
     onCameraReady: (ImageCapture, Camera) -> Unit,
@@ -269,17 +258,14 @@ private fun CameraCaptureStep(
 ) {
     Column(Modifier.fillMaxSize().background(Color.Black)) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            AndroidView(
-                factory = { viewContext ->
-                    PreviewView(viewContext).also { previewView ->
-                        CameraPreviewController(viewContext).bindWithCamera(LocalLifecycleOwner.current, previewView, onCameraReady)
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            AndroidView(factory = { viewContext ->
+                PreviewView(viewContext).also { previewView ->
+                    CameraPreviewController(viewContext).bindWithCamera(owner, previewView, onCameraReady)
+                }
+            }, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().alpha(0.28f).background(Color.Black))
             Box(Modifier.fillMaxWidth(0.86f).fillMaxHeight(0.30f).align(Alignment.Center).border(3.dp, Color.White, RoundedCornerShape(12.dp)))
-            Text("ALIGN DASHBOARD OD0METER", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center).padding(top = 150.dp))
+            Text("ALIGN DASHBOARD ODOMETER", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center).padding(top = 150.dp))
             IconButton(onClick = { onFlash(!flashOn) }, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).size(56.dp).background(Color.Black.copy(alpha = 0.6f), CircleShape)) {
                 Text(if (flashOn) "⚡" else "♢", color = Color.White, fontSize = 25.sp)
             }
@@ -290,10 +276,9 @@ private fun CameraCaptureStep(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onManual, modifier = Modifier.height(56.dp), shape = RoundedCornerShape(28.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242424))) { Text("Enter Manually") }
                 Spacer(Modifier.weight(1f))
-                Box(
-                    Modifier.size(100.dp).clip(CircleShape).background(if (busy) Color(0xFF777777) else Color.White).clickable(enabled = !busy && imageCapture != null, onClick = onShutter),
-                    contentAlignment = Alignment.Center
-                ) { Box(Modifier.size(78.dp).clip(CircleShape).background(Color(0xFFDDDDDD))) }
+                Box(Modifier.size(100.dp).clip(CircleShape).background(if (busy) Color(0xFF777777) else Color.White).clickable(enabled = !busy && imageCapture != null, onClick = onShutter), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(78.dp).clip(CircleShape).background(Color(0xFFDDDDDD)))
+                }
             }
         }
     }
@@ -315,11 +300,8 @@ private fun OdometerConfirmationStep(
     val ocrValue = ocr?.reading?.let(OdometerValidation::format) ?: "—"
     Column(Modifier.fillMaxSize().background(Color(0xFF121212)).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         StartHeader("CONFIRM ODOMETER", "Step 3 of 3", onBack)
-        if (bitmap != null) {
-            Image(bitmap.asImageBitmap(), contentDescription = "Captured odometer", modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
-        } else {
-            Box(Modifier.fillMaxWidth().height(220.dp).background(Color(0xFF242424), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { Text("Captured photo", color = Color(0xFF9E9E9E)) }
-        }
+        if (bitmap != null) Image(bitmap.asImageBitmap(), contentDescription = "Captured odometer", modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
+        else Box(Modifier.fillMaxWidth().height(220.dp).background(Color(0xFF242424), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { Text("Captured photo", color = Color(0xFF9E9E9E)) }
         Text("OCR reading", color = Color(0xFF9E9E9E), style = MaterialTheme.typography.labelLarge)
         Text(ocrValue, color = Color.White, fontSize = 72.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit))
         Text("Tap the number to correct it", color = Color(0xFF9E9E9E))
