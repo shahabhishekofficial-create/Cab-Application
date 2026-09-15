@@ -1,12 +1,15 @@
 package com.caboperations.driver.data
 
+import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import android.content.Context
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.caboperations.driver.sync.SyncPolicy
 
 @Dao interface PendingTransactionDao {
@@ -21,6 +24,13 @@ import com.caboperations.driver.sync.SyncPolicy
  @Query("SELECT * FROM pending_transactions WHERE synced = 0 AND attempts >= ${SyncPolicy.MAX_RETRY_ATTEMPTS} AND lastError <> 'TRANSACTION_FAILED' ORDER BY createdAt LIMIT 10") suspend fun exhausted():List<PendingTransaction>
  @Query("SELECT * FROM pending_transactions WHERE clientTransactionId = :id LIMIT 1") suspend fun find(id:String):PendingTransaction?
  @Query("DELETE FROM pending_transactions WHERE payloadJson LIKE '%' || :driverId || '%' AND payloadJson LIKE '%' || :vehicleId || '%'") suspend fun deleteTestScope(driverId:String,vehicleId:String):Int
+}
+
+@Dao interface VehicleDao {
+ @Insert(onConflict = OnConflictStrategy.REPLACE) fun upsert(vehicle: VehicleEntity)
+ @Query("SELECT * FROM vehicles WHERE vehicleId = :vehicleId LIMIT 1") fun find(vehicleId:String):VehicleEntity?
+ @Query("SELECT currentOdometer FROM vehicles WHERE vehicleId = :vehicleId LIMIT 1") fun currentOdometer(vehicleId:String):Double?
+ @Query("DELETE FROM vehicles WHERE vehicleId = :vehicleId") fun delete(vehicleId:String)
 }
 
 @Dao interface LocalSessionDao {
@@ -44,12 +54,17 @@ import com.caboperations.driver.sync.SyncPolicy
 @Dao interface LocalFuelDao { @Insert suspend fun insert(fuel:LocalFuel); @Query("SELECT MAX(odometer) FROM fuel_transactions WHERE sessionId = :sessionId") suspend fun maxOdometer(sessionId:String):Double?; @Query("DELETE FROM fuel_transactions WHERE sessionId IN (SELECT sessionId FROM sessions WHERE driverId = :driverId AND vehicleId = :vehicleId)") suspend fun deleteTestScope(driverId:String,vehicleId:String):Int }
 @Dao interface LocalExpenseDao { @Insert suspend fun insert(expense:LocalExpense); @Query("DELETE FROM expenses WHERE sessionId IN (SELECT sessionId FROM sessions WHERE driverId = :driverId AND vehicleId = :vehicleId)") suspend fun deleteTestScope(driverId:String,vehicleId:String):Int }
 
-@Database(entities=[PendingTransaction::class,LocalSession::class,LocalTrip::class,LocalFuel::class,LocalExpense::class],version=1,exportSchema=true)
+@Database(entities=[PendingTransaction::class,VehicleEntity::class,LocalSession::class,LocalTrip::class,LocalFuel::class,LocalExpense::class],version=2,exportSchema=true)
 abstract class CabDatabase:RoomDatabase(){
  abstract fun pendingTransactionDao():PendingTransactionDao
+ abstract fun vehicleDao():VehicleDao
  abstract fun localSessionDao():LocalSessionDao
  abstract fun localTripDao():LocalTripDao
  abstract fun localFuelDao():LocalFuelDao
  abstract fun localExpenseDao():LocalExpenseDao
- companion object { @Volatile private var INSTANCE:CabDatabase?=null; fun get(context:Context):CabDatabase=INSTANCE?: synchronized(this){ INSTANCE?:Room.databaseBuilder(context.applicationContext,CabDatabase::class.java,"cab_operations.db").build().also{INSTANCE=it} } }
+ companion object {
+  @Volatile private var INSTANCE:CabDatabase?=null
+  private val MIGRATION_1_2 = object:Migration(1,2){ override fun migrate(db:SupportSQLiteDatabase){ db.execSQL("CREATE TABLE IF NOT EXISTS vehicles (vehicleId TEXT NOT NULL PRIMARY KEY, registrationNumber TEXT, currentOdometer REAL, updatedAt INTEGER NOT NULL)") } }
+  fun get(context:Context):CabDatabase=INSTANCE?: synchronized(this){ INSTANCE?:Room.databaseBuilder(context.applicationContext,CabDatabase::class.java,"cab_operations.db").addMigrations(MIGRATION_1_2).build().also{INSTANCE=it} }
+ }
 }
