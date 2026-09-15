@@ -26,12 +26,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.caboperations.driver.capture.CameraCapture
 import com.caboperations.driver.capture.CameraPreviewController
+import com.caboperations.driver.data.CabDatabase
 import com.caboperations.driver.location.FusedLocationProvider
 import com.caboperations.driver.location.LocationSnapshot
 import com.caboperations.driver.ocr.OdometerOcrEngine
 import com.caboperations.driver.ocr.OdometerOcrResult
 import com.caboperations.driver.ocr.OdometerVerifier
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SessionStartScreen(driverId: String, vehicleId: String, onStart: suspend (Double, LocationSnapshot, String, OdometerOcrResult, OdometerVerifier.Decision) -> Unit, onCancel: () -> Unit) {
@@ -39,6 +42,7 @@ fun SessionStartScreen(driverId: String, vehicleId: String, onStart: suspend (Do
     val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     var odometer by remember { mutableStateOf("") }
+    var lastKnownOdometer by remember { mutableStateOf<Double?>(null) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var photoPath by remember { mutableStateOf<String?>(null) }
     var gps by remember { mutableStateOf<LocationSnapshot?>(null) }
@@ -46,11 +50,23 @@ fun SessionStartScreen(driverId: String, vehicleId: String, onStart: suspend (Do
     var status by remember { mutableStateOf("Take a clear photo of the dashboard odometer.") }
     var busy by remember { mutableStateOf(false) }
     var captureComplete by remember { mutableStateOf(false) }
+
+    LaunchedEffect(vehicleId) {
+        lastKnownOdometer = withContext(Dispatchers.IO) {
+            CabDatabase.get(context).localSessionDao().maxClosedOdometer(vehicleId)
+        }
+    }
+
     fun captureGps() { val provider = FusedLocationProvider(context); if (!provider.isLocationEnabled()) { gps = null; status = "Location services are OFF. Turn on Location to continue."; runCatching { context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }; return }; status = "Getting your GPS location…"; provider.currentLocation { location, error -> gps = location; status = when { error != null -> error; location?.isUsable() == true -> "Location ready. Review the odometer and start."; location != null -> "Location found, but accuracy needs review."; else -> "Unable to get a usable GPS location." } } }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants -> val cameraGranted = grants[Manifest.permission.CAMERA] == true || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED; val locationGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED; when { !cameraGranted && !locationGranted -> status = "Camera and location permissions are required"; !cameraGranted -> status = "Camera permission is required"; !locationGranted -> status = "Location permission is required"; else -> captureGps() } }
     LaunchedEffect(Unit) { val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED; val locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED; if (!cameraGranted || !locationGranted) permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) else captureGps() }
     DisposableEffect(owner) { val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) { val ok = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED; if (ok) captureGps() } }; owner.lifecycle.addObserver(observer); onDispose { owner.lifecycle.removeObserver(observer) } }
-    val manual = odometer.toDoubleOrNull(); val verification = if (manual != null && ocr != null) OdometerVerifier.compare(manual, ocr!!.reading, ocr!!.confidence) else null; val canOpen = !busy && manual != null && manual >= 0 && photoPath != null && gps?.isUsable() == true && ocr != null
+
+    val manual = odometer.toDoubleOrNull()
+    val regression = manual != null && lastKnownOdometer != null && manual < lastKnownOdometer!!
+    val verification = if (manual != null && ocr != null) OdometerVerifier.compare(manual, ocr!!.reading, ocr!!.confidence) else null
+    val canOpen = !busy && manual != null && manual >= 0 && !regression && photoPath != null && gps?.isUsable() == true && ocr != null
+
     Column(Modifier.fillMaxSize().background(CabPageBackground).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CabHeader("Start your session", "Ready to work", onBack = onCancel)
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -58,10 +74,18 @@ fun SessionStartScreen(driverId: String, vehicleId: String, onStart: suspend (Do
             CabStep("1", "Starting odometer photo", captureComplete) { if (!captureComplete) { AndroidView(factory = { viewContext -> PreviewView(viewContext).also { previewView -> CameraPreviewController(context).bind(owner, previewView) { imageCapture = it } } }, modifier = Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(16.dp))); CabPrimaryButton(if (busy) "Reading odometer…" else "Take photo & read", enabled = imageCapture != null && !busy) { val capture = imageCapture ?: return@CabPrimaryButton; busy = true; status = "Taking photo…"; CameraCapture(context).capture(capture, "start_odo") { result -> result.onSuccess { uri -> photoPath = uri.toString(); scope.launch { status = "Reading odometer…"; ocr = OdometerOcrEngine(context).recognize(uri); captureComplete = true; busy = false; captureGps() } }.onFailure { status = "Camera failed: ${it.message ?: "unknown error"}. Try again."; busy = false } } } } else { Text("Photo saved on this phone. You can retake it if the dashboard wasn’t clear.", color = CabGray); CabSecondaryButton("Retake photo", enabled = !busy) { captureComplete = false; ocr = null; photoPath = null; status = "Take a clear photo of the dashboard odometer." } } }
             CabStep("2", "Mandatory GPS location", gps?.isUsable() == true) { Text(when { gps?.isUsable() == true -> "GPS captured. Accuracy ±${gps!!.accuracyMeters.toInt()} m"; gps != null -> "GPS is available but accuracy is not sufficient yet."; else -> "GPS is required. Location services must be turned on before you can continue." }, color = CabGray) }
             if (gps?.isUsable() == true) CabCard { Text("Location ready ✓", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = CabGreen); Text("Accuracy ±${gps!!.accuracyMeters.toInt()} m", color = CabGray) }
-            CabStep("3", "Confirm starting odometer", false) { OutlinedTextField(value = odometer, onValueChange = { odometer = it }, label = { Text("Starting odometer (km)") }, supportingText = { Text("Enter the number shown on the dashboard") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)); ocr?.let { result -> Text(if (result.reading != null) "Camera read ${result.reading} km • ${(result.confidence * 100).toInt()}% confidence" else "The camera couldn’t read the number. Enter it manually; the photo will be reviewed.", color = CabGray); verification?.let { Text("Odometer check: ${it.name}", color = if (it == OdometerVerifier.Decision.PASS) CabGreen else CabAmber, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) } }; if (manual != null && manual < 0) Text("Odometer cannot be negative", color = MaterialTheme.colorScheme.error) }
+            CabStep("3", "Confirm starting odometer", false) {
+                OutlinedTextField(value = odometer, onValueChange = { odometer = it }, label = { Text("Starting odometer (km)") }, supportingText = { Text("Enter the number shown on the dashboard") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
+                lastKnownOdometer?.let { known -> Text("Last recorded vehicle reading: ${if (known % 1.0 == 0.0) known.toLong() else "%.2f".format(known)} km", color = CabGray) }
+                if (regression && manual != null && lastKnownOdometer != null) Text("Starting odometer (${formatOdometer(manual)}) is lower than the last recorded reading (${formatOdometer(lastKnownOdometer!! )}) — please check the number", color = MaterialTheme.colorScheme.error, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                ocr?.let { result -> Text(if (result.reading != null) "Camera read ${result.reading} km • ${(result.confidence * 100).toInt()}% confidence" else "The camera couldn’t read the number. Enter it manually; the photo will be reviewed.", color = CabGray); verification?.let { Text("Odometer check: ${it.name}", color = if (it == OdometerVerifier.Decision.PASS) CabGreen else CabAmber, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) } }
+                if (manual != null && manual < 0) Text("Odometer cannot be negative", color = MaterialTheme.colorScheme.error)
+            }
             Surface(shape = RoundedCornerShape(14.dp), color = if (canOpen) CabGreenSoft else CabAmberSoft) { Text(status, Modifier.fillMaxWidth().padding(13.dp), color = if (canOpen) CabGreen else CabAmber) }
             CabPrimaryButton(if (busy) "Opening session…" else "Start Session", enabled = canOpen) { val odo = manual ?: return@CabPrimaryButton; val location = gps ?: return@CabPrimaryButton; val photo = photoPath ?: return@CabPrimaryButton; val ocrResult = ocr ?: return@CabPrimaryButton; val decision = OdometerVerifier.compare(odo, ocrResult.reading, ocrResult.confidence); busy = true; status = "Saving securely on this phone…"; scope.launch { try { onStart(odo, location, photo, ocrResult, decision) } catch (e: Exception) { status = e.message ?: "Unable to start. Your photo remains on the phone."; busy = false } } }
             CabSecondaryButton("Cancel", enabled = !busy, onClick = onCancel)
         }
     }
 }
+
+private fun formatOdometer(value: Double): String = if (value % 1.0 == 0.0) value.toLong().toString() else "%.2f".format(value)
