@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -52,13 +51,12 @@ fun OdometerNumpad(
             )
             Spacer(Modifier.height(12.dp))
             when (validation) {
-                is OdometerValidationResult.Regression ->
-                    Text(
-                        "Entered reading (${OdometerValidation.format(validation.entered)}) is lower than last recorded reading (${OdometerValidation.format(validation.current)})",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.fillMaxWidth().background(Color(0xFF8B1E1E), RoundedCornerShape(12.dp)).padding(14.dp)
-                    )
+                is OdometerValidationResult.Regression -> Text(
+                    "Entered reading (${OdometerValidation.format(validation.entered)}) is lower than last recorded reading (${OdometerValidation.format(validation.current)})",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.fillMaxWidth().background(Color(0xFF8B1E1E), RoundedCornerShape(12.dp)).padding(14.dp)
+                )
                 OdometerValidationResult.Invalid -> Text("Enter a valid non-negative odometer reading", color = Color(0xFFFF6B6B))
                 else -> Unit
             }
