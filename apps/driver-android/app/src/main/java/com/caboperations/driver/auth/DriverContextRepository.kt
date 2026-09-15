@@ -10,7 +10,7 @@ import java.net.URL
 class DriverContextRepository {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun load(accessToken: String): Result<DriverContext> = runCatching {
+    fun load(accessToken: String): DriverContext = runCatching {
         val connection = (URL(BuildConfig.API_BASE_URL.trimEnd('/') + "/v1/me/driver-context").openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 10_000
@@ -28,6 +28,8 @@ class DriverContextRepository {
             val root = json.parseToJsonElement(text).jsonObject
             val context = root["context"] ?: error("DRIVER_CONTEXT_FAILED")
             json.decodeFromJsonElement(DriverContext.serializer(), context)
-        } finally { connection.disconnect() }
-    }
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrThrow()
 }
