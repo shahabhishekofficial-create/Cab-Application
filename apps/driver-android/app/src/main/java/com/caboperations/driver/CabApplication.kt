@@ -10,6 +10,7 @@ class CabApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         connectivitySyncMonitor = ConnectivitySyncMonitor(this).also { it.register() }
+        SyncScheduler.ensurePeriodic(this, BuildConfig.API_BASE_URL)
         SyncScheduler.resetAndEnqueue(this, BuildConfig.API_BASE_URL)
     }
 }
