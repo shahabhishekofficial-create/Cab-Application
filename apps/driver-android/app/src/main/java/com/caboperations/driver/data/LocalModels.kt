@@ -14,6 +14,14 @@ data class PendingTransaction(
     val synced: Boolean = false
 )
 
+@Entity(tableName = "vehicles")
+data class VehicleEntity(
+    @PrimaryKey val vehicleId: String,
+    val registrationNumber: String? = null,
+    val currentOdometer: Double? = null,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "sessions")
 data class LocalSession(
     @PrimaryKey val sessionId: String,
