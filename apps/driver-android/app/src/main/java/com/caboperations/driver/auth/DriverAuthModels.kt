@@ -18,5 +18,6 @@ data class DriverContext(
     val displayName:String,
     val vehicleId:String?=null,
     val registrationNumber:String?=null,
+    val currentOdometer:Double?=null,
     val today:TodayStats=TodayStats()
 )
