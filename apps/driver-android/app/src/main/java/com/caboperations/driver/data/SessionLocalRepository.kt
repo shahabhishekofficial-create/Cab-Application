@@ -55,6 +55,8 @@ class SessionLocalRepository(private val context: Context) {
                 db.pendingTransactionDao().insert(PendingTransaction(UUID.randomUUID().toString(), "FILE_UPLOAD", buildJsonObject {
                     put("sessionId", sessionId)
                     put("parentClientTransactionId", transactionId)
+                    put("driverId", driverId)
+                    put("vehicleId", vehicleId)
                     put("fileId", fileId)
                     put("localFilePath", filePath)
                     put("objectPath", objectPath!!)
