@@ -1,6 +1,8 @@
 package com.caboperations.driver.auth
 
 import com.caboperations.driver.BuildConfig
+import com.caboperations.driver.data.CabDatabase
+import com.caboperations.driver.data.VehicleEntity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -27,7 +29,18 @@ class DriverContextRepository {
             }
             val root = json.parseToJsonElement(text).jsonObject
             val context = root["context"] ?: error("DRIVER_CONTEXT_FAILED")
-            json.decodeFromJsonElement(DriverContext.serializer(), context)
+            val driverContext = json.decodeFromJsonElement(DriverContext.serializer(), context)
+            val vehicleId = driverContext.vehicleId
+            if (!vehicleId.isNullOrBlank()) {
+                CabDatabase.get(com.caboperations.driver.CabApplication.instance).vehicleDao().upsert(
+                    VehicleEntity(
+                        vehicleId = vehicleId,
+                        registrationNumber = driverContext.registrationNumber,
+                        currentOdometer = driverContext.currentOdometer
+                    )
+                )
+            }
+            driverContext
         } finally {
             connection.disconnect()
         }
