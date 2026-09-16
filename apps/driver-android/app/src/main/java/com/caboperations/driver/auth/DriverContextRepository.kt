@@ -1,7 +1,9 @@
 package com.caboperations.driver.auth
 
 import com.caboperations.driver.BuildConfig
+import com.caboperations.driver.CabApplication
 import com.caboperations.driver.data.CabDatabase
+import com.caboperations.driver.data.DriverIdentity
 import com.caboperations.driver.data.VehicleEntity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -11,6 +13,8 @@ import java.net.URL
 
 class DriverContextRepository {
     private val json = Json { ignoreUnknownKeys = true }
+
+    fun cached(): DriverContext? = DriverIdentity(CabApplication.instance).cachedContext()
 
     fun load(accessToken: String): DriverContext = runCatching {
         val connection = (URL(BuildConfig.API_BASE_URL.trimEnd('/') + "/v1/me/driver-context").openConnection() as HttpURLConnection).apply {
@@ -32,7 +36,7 @@ class DriverContextRepository {
             val driverContext = json.decodeFromJsonElement(DriverContext.serializer(), context)
             val vehicleId = driverContext.vehicleId
             if (!vehicleId.isNullOrBlank()) {
-                CabDatabase.get(com.caboperations.driver.CabApplication.instance).vehicleDao().upsert(
+                CabDatabase.get(CabApplication.instance).vehicleDao().upsert(
                     VehicleEntity(
                         vehicleId = vehicleId,
                         registrationNumber = driverContext.registrationNumber,
@@ -40,6 +44,7 @@ class DriverContextRepository {
                     )
                 )
             }
+            DriverIdentity(CabApplication.instance).cacheContext(driverContext)
             driverContext
         } finally {
             connection.disconnect()
