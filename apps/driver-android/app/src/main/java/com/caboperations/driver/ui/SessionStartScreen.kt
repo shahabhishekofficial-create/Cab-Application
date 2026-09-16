@@ -48,7 +48,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.clip
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -146,7 +148,7 @@ fun SessionStartScreen(driverId: String, vehicleId: String, onStart: suspend (Do
 
 @Composable
 private fun OdometerEntryStep(value: String, currentOdometer: Double?, error: String, onValueChange: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit) {
-    val focusRequester = androidx.compose.ui.focus.FocusRequester()
+    val focusRequester = FocusRequester()
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboard?.show() }
     Column(Modifier.fillMaxSize().background(Color(0xFF121212))) {
