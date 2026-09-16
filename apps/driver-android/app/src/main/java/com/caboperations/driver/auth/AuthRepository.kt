@@ -26,8 +26,23 @@ data class AuthSession(val accessToken: String, val refreshToken: String, val ex
 class AuthRepository(private val context: Context) {
     private val prefs = context.getSharedPreferences("supabase_auth", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
+    private val keyAlias = "cab-auth-key"
 
-    fun session(): AuthSession? = prefs.getString("session", null)?.let { runCatching { json.decodeFromString<AuthSession>(decrypt(it)) }.getOrNull() }
+    /** Never turns a transient/keystore read failure into a logged-out state. */
+    fun session(): AuthSession? {
+        val stored = runCatching { prefs.getString("session", null) }.getOrNull() ?: return null
+        if (stored.isBlank()) return null
+        return try {
+            json.decodeFromString<AuthSession>(decrypt(stored))
+        } catch (e: Exception) {
+            // A broken KeyStore entry can survive an app update/reinstall. Reset only the
+            // encrypted credential blob/key so launch cannot crash or enter an auth loop.
+            recoverCorruptCredentialStorage()
+            null
+        }
+    }
+
+    fun hasLocalSession(): Boolean = runCatching { !prefs.getString("session", null).isNullOrBlank() }.getOrDefault(false)
 
     fun login(email: String, password: String): Result<AuthSession> = requestToken(
         "/auth/v1/token?grant_type=password", "{\"email\":${Json.encodeToString(email)},\"password\":${Json.encodeToString(password)}}"
@@ -97,7 +112,11 @@ class AuthRepository(private val context: Context) {
         } finally { connection.disconnect() }
     }
 
-    private fun save(value: AuthSession) { prefs.edit().putString("session", encrypt(json.encodeToString(value))).apply() }
+    private fun save(value: AuthSession) {
+        runCatching { prefs.edit().putString("session", encrypt(json.encodeToString(value))).apply() }
+            .getOrElse { recoverCorruptCredentialStorage(); throw it }
+    }
+
     private fun parseError(text: String): String = runCatching {
         val o = Json.parseToJsonElement(text).jsonObject
         o["msg"]?.jsonPrimitive?.content ?: o["error_description"]?.jsonPrimitive?.content ?: o["error"]?.jsonPrimitive?.content ?: "AUTH_FAILED"
@@ -110,13 +129,30 @@ class AuthRepository(private val context: Context) {
     }
 
     private fun key(): SecretKey {
-        val alias = "cab-auth-key"
         val ks = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (ks.getKey(alias, null) as? SecretKey)?.let { return it }
+        (ks.getKey(keyAlias, null) as? SecretKey)?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-        generator.init(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
+        generator.init(KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         return generator.generateKey()
     }
-    private fun encrypt(value: String): String { val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }; return Base64.encodeToString(c.iv + c.doFinal(value.toByteArray(StandardCharsets.UTF_8)), Base64.NO_WRAP) }
-    private fun decrypt(value: String): String { val all = Base64.decode(value, Base64.NO_WRAP); val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, all.copyOfRange(0, 12))) }; return String(c.doFinal(all.copyOfRange(12, all.size)), StandardCharsets.UTF_8) }
+
+    private fun encrypt(value: String): String {
+        val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
+        return Base64.encodeToString(c.iv + c.doFinal(value.toByteArray(StandardCharsets.UTF_8)), Base64.NO_WRAP)
+    }
+
+    private fun decrypt(value: String): String {
+        val all = Base64.decode(value, Base64.NO_WRAP)
+        require(all.size > 12) { "AUTH_CREDENTIAL_CORRUPT" }
+        val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, all.copyOfRange(0, 12))) }
+        return String(c.doFinal(all.copyOfRange(12, all.size)), StandardCharsets.UTF_8)
+    }
+
+    private fun recoverCorruptCredentialStorage() {
+        runCatching { prefs.edit().remove("session").remove("oauth_state").apply() }
+        runCatching {
+            val ks = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            if (ks.containsAlias(keyAlias)) ks.deleteEntry(keyAlias)
+        }
+    }
 }
