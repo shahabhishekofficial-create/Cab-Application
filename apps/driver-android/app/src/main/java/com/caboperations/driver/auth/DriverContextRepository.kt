@@ -13,10 +13,26 @@ import java.net.URL
 
 class DriverContextRepository {
     private val json = Json { ignoreUnknownKeys = true }
+    private val identity = DriverIdentity(CabApplication.instance)
 
-    fun cached(): DriverContext? = DriverIdentity(CabApplication.instance).cachedContext()
+    /**
+     * Offline-first launch path. A previously authenticated context is authoritative enough
+     * for restoring the UI; remote validation is deliberately moved off the critical path.
+     */
+    fun load(accessToken: String): DriverContext {
+        val cached = cached()
+        if (cached != null) {
+            Thread {
+                runCatching { refresh(accessToken) }
+            }.start()
+            return cached
+        }
+        return refresh(accessToken)
+    }
 
-    fun load(accessToken: String): DriverContext = runCatching {
+    fun cached(): DriverContext? = identity.cachedContext()
+
+    private fun refresh(accessToken: String): DriverContext = runCatching {
         val connection = (URL(BuildConfig.API_BASE_URL.trimEnd('/') + "/v1/me/driver-context").openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 10_000
@@ -44,7 +60,7 @@ class DriverContextRepository {
                     )
                 )
             }
-            DriverIdentity(CabApplication.instance).cacheContext(driverContext)
+            identity.cacheContext(driverContext)
             driverContext
         } finally {
             connection.disconnect()
