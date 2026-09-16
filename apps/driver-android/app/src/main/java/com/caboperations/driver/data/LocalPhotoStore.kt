@@ -7,7 +7,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.UUID
 
-/** Persists camera/content URIs into app-owned storage before an offline upload is queued. */
+/** Persists camera/content URIs or absolute camera paths into app-owned storage before an offline upload is queued. */
 object LocalPhotoStore {
     fun persist(context: Context, uriString: String): String {
         require(uriString.isNotBlank()) { "PHOTO_URI_EMPTY" }
@@ -15,10 +15,15 @@ object LocalPhotoStore {
         val destinationDir = File(context.filesDir, "pending-photos").apply { mkdirs() }
         val destination = File(destinationDir, "${UUID.randomUUID()}.jpg")
 
-        if (uri.scheme.equals("file", ignoreCase = true)) {
-            val source = File(requireNotNull(uri.path) { "PHOTO_PATH_MISSING" })
-            require(source.exists() && source.isFile) { "PHOTO_MISSING" }
-            FileInputStream(source).use { input ->
+        val sourceFile = when {
+            uri.scheme.equals("file", ignoreCase = true) -> File(requireNotNull(uri.path) { "PHOTO_PATH_MISSING" })
+            uri.scheme.isNullOrBlank() -> File(uriString)
+            else -> null
+        }
+
+        if (sourceFile != null) {
+            require(sourceFile.exists() && sourceFile.isFile) { "PHOTO_MISSING" }
+            FileInputStream(sourceFile).use { input ->
                 FileOutputStream(destination).use { output -> input.copyTo(output) }
             }
         } else {
