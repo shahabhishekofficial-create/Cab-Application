@@ -17,6 +17,5 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/driver-pwa/package-lock.json
       - run: npm install
       - run: npm run build
