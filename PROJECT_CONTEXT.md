@@ -112,3 +112,35 @@ Implemented dark-first theme, combined CAB/Cab Driver lockup, sans typography, a
 - **Sync is NOT considered resolved by implementation/CI alone. Required proof is physical-device evidence:** install the validated APK, create multiple pending transactions, observe the Sync Status screen pending count decrease to 0 (or equivalent all-synced state) within a reasonable window, and capture `CabSync` logs showing transaction attempts and successful server responses. No physical Android device/ADB is available in this environment, so this proof remains outstanding and must not be claimed completed.
 - **Device registration finding:** `DriverIdentity` derives a local Android device ID from `Settings.Secure.ANDROID_ID`, but current session start passes it through the sync payload and server sanitization accepts non-UUID legacy identifiers as null. There is no verified device-registration call in the current Android flow, so `devices=0` is currently consistent with device registration being decoupled/not implemented, not evidence of an orphaned device row. This is non-blocking but should be addressed before device inventory/audit is relied upon.
 - Live Supabase audit immediately before this task had sessions=1, trips=0, fuel=0, expenses=0, devices=0, open exceptions=0.
+
+
+## Client Trial Governance — 2026-09-20
+
+### Android current truth before PWA trial
+The native Android driver app remains the active baseline and is **not abandoned or modified as part of this trial**. The implementation/CI work is substantially complete, but end-to-end sync is **not yet physically verified**. The required proof remains real-device evidence: multiple pending transactions, queue/pending count reaching zero, and `CabSync` logs showing successful server responses. No physical Android device/ADB evidence is available in this environment, so this must not be represented as completed.
+
+Testing-session decisions that must remain part of the Android baseline before any future Android continuation:
+- Sync-engine root causes/fixes already recorded above remain authoritative; do not revert the retry, mutex, token-refresh, dependency-ordering, durable retry, or failed-transaction recovery decisions.
+- Odometer-photo OCR verification is a required verification step for the relevant start/close flow; it is not to be silently removed or weakened in a future client.
+- GPS collection is silent/background operational evidence rather than a user-facing GPS display requirement; mandatory GPS validation remains server-side with freshness/accuracy constraints.
+- Trip platform selection is an explicit operational input and must remain available in the functional flow; the visual treatment is client-specific.
+- End Trip must complete before End Session; session close must remain blocked while an active/in-progress trip exists.
+
+### PWA trial — evaluation only
+The PWA is a **time-boxed functional trial, not a committed rewrite**. Its sole question is whether it can reach a genuinely verified working state faster than the remaining Android path to done.
+
+**Trial time box:** one work session, ending at the end of the next focused work session. No indefinite parallel implementation is permitted. At the end of that session the project must explicitly classify the PWA as:
+1. **Further along than Android** — PWA becomes primary and Android is paused/deprecated in this document; or
+2. **Roughly equal / behind Android** — Android resumes as primary and PWA is shelved/dropped.
+
+The comparison is functional, not visual. The PWA must prove this complete path to count as working: **login -> session start -> trip -> fuel -> expense -> sync round-trip -> session close**, including offline queue behavior and successful server acceptance. Built code, CI success, or mocked responses alone do not count as verification.
+
+### PWA scope during trial
+Until the functional trial proves out, **do not port Android UI/UX polish** to the PWA. Specifically, do not spend trial time reproducing the Android theme, OCR-verification visual flow, or platform-selector visual treatment. Focus only on authentication, offline persistence/queueing, API contracts, sync round-trip, dependency ordering, and close correctness.
+
+### PWA current status — 2026-09-20
+- PWA source exists under `apps/driver-pwa` with Supabase Auth integration, API calls, GPS capture, IndexedDB queue, service worker/manifest, session/trip/fuel/expense/close actions, and manual sync.
+- PWA functional verification status: **NOT VERIFIED**. No successful end-to-end browser/device run has yet established login -> session -> trip -> fuel -> expense -> sync -> close against the live backend.
+- PWA CI status at this checkpoint: workflow was initially blocked by npm cache/lockfile configuration and was corrected; a successful post-fix build still needs to be observed before treating CI as green.
+- Therefore the PWA is currently **behind the Android baseline in verified functional maturity**, although it may still win the time-boxed trial if it reaches the full verified flow within the next work session.
+- No Android work is to be started merely to keep parity during the trial, and no Android code/data is to be removed.
