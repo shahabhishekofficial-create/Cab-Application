@@ -88,3 +88,24 @@ jobs:
           name: cab-driver-debug-apk
           path: apps/driver-android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+  driver-pwa:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/driver-pwa
+    env:
+      VITE_API_BASE_URL: https://cab-application-z4ow.onrender.com
+      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/driver-pwa/package.json
+      - run: npm install
+      - name: Verify PWA Supabase configuration
+        run: test -n "$VITE_SUPABASE_URL" && test -n "$VITE_SUPABASE_PUBLISHABLE_KEY"
+      - run: npm run build
